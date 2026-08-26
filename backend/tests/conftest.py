@@ -67,10 +67,11 @@ async def db() -> AsyncSession:
 @pytest.fixture
 def captured_emails(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """Intercepts app.core.notifications.send_email so tests can assert on
-    OTP codes / reset tokens without a real email provider."""
+    OTP codes / reset tokens without a real SMTP server. send_email is
+    async (real SMTP sending needs to be), so the fake must be too."""
     sent: list[dict] = []
 
-    def fake_send_email(*, to: str, subject: str, body: str) -> None:
+    async def fake_send_email(*, to: str, subject: str, body: str) -> None:
         sent.append({"to": to, "subject": subject, "body": body})
 
     monkeypatch.setattr("app.core.notifications.send_email", fake_send_email)

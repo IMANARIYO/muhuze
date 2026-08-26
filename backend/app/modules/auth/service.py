@@ -134,7 +134,7 @@ class VerificationService:
             code_hash=hash_token(code),
             expires_at=expires_at,
         )
-        notifications.send_email(
+        await notifications.send_email(
             to=account.email,
             subject="Your MUHUZE verification code",
             body=(
@@ -184,7 +184,7 @@ class PasswordResetService:
             token_hash=hash_token(raw_token),
             expires_at=expires_at,
         )
-        notifications.send_email(
+        await notifications.send_email(
             to=account.email,
             subject="Reset your MUHUZE password",
             body=(

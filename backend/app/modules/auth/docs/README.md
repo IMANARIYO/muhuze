@@ -37,11 +37,12 @@ repository.py    → data access only (SQLAlchemy queries), no business rules
 `AuthorizationService`/`AuthorizationRepository`) — one `AuthController` wires
 them all together, since together they *are* the auth module's HTTP surface.
 
-**Email delivery is stubbed.** `app/core/notifications.py::send_email` logs
-instead of actually sending — there's no email/SMS provider configured yet.
-Every OTP/reset-token flow is otherwise complete; swapping in a real
-provider (SES/SendGrid/etc.) means changing that one function, not the
-domain logic. See [roadmap.md](roadmap.md).
+**Email delivery is real, SMS isn't.** `app/core/notifications.py::send_email`
+sends via SMTP when `SMTP_HOST` is configured in `.env`, and falls back to
+logging when it isn't (no real credentials supplied yet — see
+[core/docs/notifications.md](../../../core/docs/notifications.md)). Phone
+verification uses the same `VerificationCode` table but has no SMS sender
+wired up. See [roadmap.md](roadmap.md).
 
 ## Endpoints
 

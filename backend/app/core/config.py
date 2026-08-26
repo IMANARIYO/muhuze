@@ -23,6 +23,22 @@ class Settings(BaseSettings):
     test_seller_email: str | None = None
     test_seller_password: str | None = None
 
+    # File storage (app/core/storage.py) — Cloudinary. Optional so the app
+    # still starts without them configured; uploading without them raises
+    # StorageNotConfiguredError only when something actually tries to upload.
+    cloudinary_cloud_name: str | None = None
+    cloudinary_api_key: str | None = None
+    cloudinary_api_secret: str | None = None
+
+    # Email (app/core/notifications.py) — SMTP. Optional: unset means
+    # send_email logs instead of sending, same as before this was wired up.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

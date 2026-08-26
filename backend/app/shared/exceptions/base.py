@@ -38,3 +38,8 @@ class ConflictError(AppError):
 class ValidationAppError(AppError):
     status_code = 422
     message = "Validation error"
+
+
+class ServiceUnavailableError(AppError):
+    status_code = 503
+    message = "Service unavailable"

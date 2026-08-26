@@ -26,7 +26,7 @@
 - [x] OTP expiration (`OTP_EXPIRE_MINUTES`, default 10)
 - [x] "Resend" — just call `/request` again; old unverified codes stay valid until they expire, no explicit invalidation needed
 - [ ] Phone verification — same table, same code path, just needs an SMS sender + endpoint when there's an SMS provider
-- [ ] Real email delivery — currently `app/core/notifications.py::send_email` logs instead of sending (no provider configured)
+- [x] Real email delivery — `app/core/notifications.py::send_email` sends via SMTP (`aiosmtplib`) when `SMTP_HOST` is set in `.env`; still falls back to logging when unset (real credentials not supplied yet — see `core/docs/notifications.md`)
 
 ## Phase 4 — Password recovery
 
@@ -34,7 +34,7 @@
 - [x] `PasswordResetTokenRepository` (`create`, `get_valid_by_token_hash`, `mark_used`)
 - [x] `POST /auth/password/forgot` — always 200, doesn't reveal whether the email exists
 - [x] `POST /auth/password/reset` — consumes token (single-use), sets new password, revokes all refresh tokens
-- [ ] Real email delivery — same gap as Phase 3
+- [x] Real email delivery — same as Phase 3, wired via SMTP
 
 ## Phase 5 — Authorization (roles & permissions)
 
