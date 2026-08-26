@@ -61,7 +61,12 @@ This backend follows a **modular/feature-based architecture** rather than one fl
 backend/
 ├── app/
 │   ├── main.py
+│   ├── api/
+│   │   └── v1/
+│   │       └── router.py     # aggregates every module's router under /api/v1
 │   ├── core/                # config, database, security, logging, middleware — app-wide infrastructure
+│   ├── db/
+│   │   └── models.py         # central model registry — one import per model, read by alembic/env.py
 │   ├── shared/               # cross-cutting building blocks reused by every module
 │   │   ├── responses/        # standardized APIResponse[T] envelope + helpers
 │   │   ├── exceptions/       # AppError hierarchy + global exception handlers
@@ -77,7 +82,16 @@ backend/
 └── pyproject.toml
 ```
 
-Every module follows the same flat convention: `router.py`, `schemas.py`, `models.py`, `service.py`, `dependencies.py`, `exceptions.py`.
+Every module follows the same 4-layer convention:
+- `router.py` — route declarations only (path, method, request/response schema); delegates to the controller.
+- `controller.py` — the HTTP layer: translates request schemas to service calls and service results back to response schemas.
+- `service.py` — business rules. No HTTP concerns, no direct SQL — calls the repository.
+- `repository.py` — data access only (SQLAlchemy queries). No business rules.
+- `schemas.py`, `models.py`, `dependencies.py`, `exceptions.py` round out each module.
+
+Each module's router is included into `app/api/v1/router.py`, which `main.py` mounts once — so `main.py` never grows a long list of `include_router` calls as modules are built out.
+
+**Module-owned docs.** Once a module has real content worth documenting, it gets its own `docs/` folder (`README.md` — purpose, responsibilities, explicit non-responsibilities; `database.md` — table-by-table schema; `roadmap.md` — done vs. planned, as a checklist). This repo's own README stays high-level and doesn't duplicate table schemas — see [`app/modules/auth/docs/`](backend/app/modules/auth/docs/) for the first one, built out alongside the `auth` module.
 
 ## Project Status
 
@@ -92,10 +106,23 @@ This repository is a **ground-up backend rebuild**. The infrastructure foundatio
 - [x] Global exception handling (domain errors, validation errors, HTTP errors, unhandled exceptions) → one consistent response shape
 - [x] Structured logging (JSON in production, readable text in development) with per-request correlation IDs
 - [x] Test suite + CI-ready lint (`ruff`) for everything above
+- [x] `/api/v1` router aggregation (`app/api/v1/router.py`, mounted once from `main.py`)
+- [x] `Account` model (auth identity: email/phone/password_hash/is_active/is_verified) + migration
+- [x] Auth: register (`POST /api/v1/auth/register`) and login (`POST /api/v1/auth/login`, JWT access + opaque refresh token)
+- [x] `RefreshToken` model + migration — hashed, revocable, rotated on use (`POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`)
+- [x] `get_current_account` dependency (`auth`) — JWT-gates any endpoint in any module
+- [x] `Profile` model + migration (`users`, 1:1 with `Account`) — `GET/PUT /api/v1/users/me`
+- [x] Email verification — OTP via `POST /api/v1/auth/email/verification/{request,confirm}` (sets `Account.is_verified`)
+- [x] Password reset — `POST /api/v1/auth/password/{forgot,reset}` (single-use token, revokes all sessions on reset)
+- [x] Authorization — `roles`/`permissions`/`account_roles`/`role_permissions`, seeded with `buyer`/`seller`/`admin`; every account gets `buyer` at registration; `require_role`/`require_permission` dependency factories for any module to use (`GET /api/v1/auth/me/authorization`)
+- [x] Permission registry & sync — permissions are code-defined (each module's own `permissions.py`), reconciled into the database via `python -m app.scripts.sync_permissions`; roles stay dynamic (admin-manageable), permissions don't (see `auth/docs/permissions-sync.md`)
+- [x] Startup account bootstrap — env-configured `admin` and `buyer`+`seller` test accounts, seeded idempotently every time the app starts (`app/core/bootstrap.py`, `main.py`'s `lifespan`); solves "how does the first admin get created" (see `auth/docs/bootstrap.md`)
+- [x] Role/permission management — admin-only endpoints to grant/revoke an existing role on an account and an existing permission on a role; `require_permission` verified end-to-end (deny → assign → grant) even though no module has a real permission yet
+- [x] **Authentication and authorization considered fully implemented for what's been built so far**: register/login/refresh/logout, email verification, password reset, RBAC with dynamic role assignment and a code-synced permission catalog, and a working bootstrap path for the first admin. 63/63 backend tests passing. See `auth/docs/roadmap.md` for the two honest gaps (real email delivery is stubbed; no module has a real permission to gate yet) and open questions.
+- [x] Authentication module considered feature-complete for its scope — see `auth/docs/roadmap.md` for the two remaining gaps (real email delivery, phone OTP) and open questions
 
 **Not yet built (scaffolded only):**
-- [ ] Auth (registration, login, JWT issuance)
-- [ ] Users, Sellers, Seller Verification
+- [ ] Sellers (mid-build, paused — model/repository/service/controller/router written but not yet wired into the app), Seller Verification
 - [ ] Categories, Products
 - [ ] Orders (status lifecycle)
 - [ ] Payments

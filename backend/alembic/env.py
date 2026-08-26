@@ -9,6 +9,11 @@ from alembic import context
 from app.core.config import settings
 from app.core.database import Base
 
+# app.db.models is the central model registry: it imports every module's
+# models so Base.metadata is fully populated for autogenerate. Register new
+# models there, not here.
+from app.db import models  # noqa: F401
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config

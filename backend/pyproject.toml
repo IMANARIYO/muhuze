@@ -22,4 +22,13 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Keep async tests on one event loop for the whole session: the SQLAlchemy
+# async engine is a module-level singleton, and its pooled connections break
+# (esp. on Windows' ProactorEventLoop) if reused across a different loop.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# B008: FastAPI's `Depends()` default-argument pattern is intentional, not a bug.
+ignore = ["B008"]
