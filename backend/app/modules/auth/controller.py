@@ -124,3 +124,18 @@ class AuthController:
         self, role_name: str, permission_code: str
     ) -> None:
         await self.authorization.revoke_permission_from_role(role_name, permission_code)
+
+    async def grant_direct_permission(
+        self, account_id: uuid.UUID, payload: AssignPermissionRequest
+    ) -> None:
+        await self.authorization.grant_direct_permission(
+            account_id, payload.permission_code
+        )
+
+    async def revoke_direct_permission(
+        self, account_id: uuid.UUID, permission_code: str
+    ) -> None:
+        await self.authorization.revoke_direct_permission(account_id, permission_code)
+
+    async def list_direct_permissions(self, account_id: uuid.UUID) -> list[str]:
+        return await self.authorization.list_direct_permissions(account_id)

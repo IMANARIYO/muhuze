@@ -62,8 +62,11 @@ domain logic. See [roadmap.md](roadmap.md).
 | DELETE | `/api/v1/auth/accounts/{account_id}/roles/{role_name}` | Admin | Revoke a role from an account |
 | POST | `/api/v1/auth/roles/{role_name}/permissions` | Admin | Grant an existing permission to a role (body: `{"permission_code": "..."}`) |
 | DELETE | `/api/v1/auth/roles/{role_name}/permissions/{permission_code}` | Admin | Revoke a permission from a role |
+| GET | `/api/v1/auth/accounts/{account_id}/permissions` | Admin | List an account's *direct* permission grants (not the role-derived ones — see [database.md](database.md#effective-permissions-role-based--direct)) |
+| POST | `/api/v1/auth/accounts/{account_id}/permissions` | Admin | Grant an existing permission directly to an account, bypassing roles (body: `{"permission_code": "..."}`) |
+| DELETE | `/api/v1/auth/accounts/{account_id}/permissions/{permission_code}` | Admin | Revoke a direct permission from an account |
 
-None of these *create* roles or permissions — roles are seeded (`buyer`/`seller`/`admin`, see `database.md`) and permissions are code-synced (see [permissions-sync.md](permissions-sync.md)). These endpoints only manage assignment: which account has which role, which role has which permission. "Admin" means [`require_role("admin")`](#for-other-modules-gating-an-endpoint-by-rolepermission) — see [bootstrap.md](bootstrap.md) for how the first admin account comes to exist.
+None of these *create* roles or permissions — roles are seeded (`buyer`/`seller`/`admin`, see `database.md`) and permissions are code-synced (see [permissions-sync.md](permissions-sync.md)). These endpoints only manage assignment: which account has which role, which role has which permission, and which account has which permission *directly*. "Admin" means [`require_role("admin")`](#for-other-modules-gating-an-endpoint-by-rolepermission) — see [bootstrap.md](bootstrap.md) for how the first admin account comes to exist.
 
 ## For other modules: gating an endpoint by role/permission
 

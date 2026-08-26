@@ -173,3 +173,37 @@ async def revoke_permission_from_role(
 ) -> APIResponse:
     await controller.revoke_permission_from_role(role_name, permission_code)
     return success_response(message="Permission revoked from role successfully")
+
+
+@router.get("/accounts/{account_id}/permissions")
+async def list_direct_permissions(
+    account_id: uuid.UUID,
+    admin: Account = Depends(require_role("admin")),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse:
+    permissions = await controller.list_direct_permissions(account_id)
+    return success_response(
+        data=permissions, message="Direct permissions retrieved successfully"
+    )
+
+
+@router.post("/accounts/{account_id}/permissions", status_code=status.HTTP_201_CREATED)
+async def grant_direct_permission(
+    account_id: uuid.UUID,
+    payload: AssignPermissionRequest,
+    admin: Account = Depends(require_role("admin")),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse:
+    await controller.grant_direct_permission(account_id, payload)
+    return success_response(message="Permission granted directly to account")
+
+
+@router.delete("/accounts/{account_id}/permissions/{permission_code}")
+async def revoke_direct_permission(
+    account_id: uuid.UUID,
+    permission_code: str,
+    admin: Account = Depends(require_role("admin")),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse:
+    await controller.revoke_direct_permission(account_id, permission_code)
+    return success_response(message="Direct permission revoked from account")

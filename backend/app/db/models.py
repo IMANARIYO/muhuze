@@ -7,6 +7,7 @@ change (not env.py, not this file's structure).
 
 from app.modules.auth.models import (  # noqa: F401
     Account,
+    AccountPermission,
     AccountRole,
     PasswordResetToken,
     Permission,

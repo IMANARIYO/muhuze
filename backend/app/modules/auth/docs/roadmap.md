@@ -38,7 +38,7 @@
 
 ## Phase 5 — Authorization (roles & permissions)
 
-- [x] `Role`, `Permission`, `AccountRole`, `RolePermission` models + migration
+- [x] `Role`, `Permission`, `AccountRole`, `RolePermission`, `AccountPermission` models + migration
 - [x] Default roles seeded in the migration: `buyer`, `seller`, `admin`
 - [x] `AuthorizationRepository` (role/permission lookups and assignment)
 - [x] Every account auto-assigned `buyer` at registration
@@ -49,6 +49,7 @@
 - [x] Startup bootstrap (`app/core/bootstrap.py`, wired into `main.py`'s `lifespan`): seeds one `admin` account and one `buyer`+`seller` test account from env vars (`SUPER_ADMIN_EMAIL`/`SUPER_ADMIN_PASSWORD`, `TEST_SELLER_EMAIL`/`TEST_SELLER_PASSWORD`), idempotent, test-seller skipped in production — see [bootstrap.md](bootstrap.md). Solves the "how does the first admin exist" bootstrap problem.
 - [x] Role/permission management endpoints, all `require_role("admin")`-gated: `GET /roles`, `GET /permissions`, `POST/DELETE /accounts/{id}/roles[/{role_name}]`, `POST/DELETE /roles/{role_name}/permissions[/{code}]` — any admin can grant any *existing* role to any account and any *existing* permission to any role. Doesn't create roles or permissions (see [permissions-sync.md](permissions-sync.md) for why permissions specifically never get an API), only manages assignment.
 - [x] `require_permission` proven end-to-end despite the empty catalog: `test_role_management.py`'s `test_require_permission_dependency_denies_then_grants_after_assignment` syncs a throwaway permission, assigns it role→account through the real endpoints, and calls the dependency directly — denies before assignment, grants after
+- [x] Direct account permissions (`AccountPermission`) — a permission granted straight to one account, bypassing roles entirely. Effective permissions (what `has_permission`/`require_permission`/`/me/authorization` all use) = role-derived ∪ direct, deduplicated. `POST/DELETE /auth/accounts/{id}/permissions[/{code}]` + `GET` to list an account's direct grants. GRANT only — no DENY/override semantics, deliberately (see [database.md](database.md#effective-permissions-role-based--direct)). Verified: survives role removal, dedupes when granted both ways, and `require_permission` grants access via a direct grant with zero roles involved (`tests/test_direct_permissions.py`)
 - [ ] `sellers` module itself is still paused mid-build — separate from role assignment
 - [ ] Permission catalog is empty — no endpoint anywhere calls `require_permission` yet; the sync mechanism and the assignment chain are both proven (tested in isolation), just waiting for the first module with a real gating need. Don't invent codes speculatively.
 - [ ] Creating new roles (beyond the seeded `buyer`/`seller`/`admin`) — not built; wasn't asked for yet and the 3 seeded roles cover everything built so far

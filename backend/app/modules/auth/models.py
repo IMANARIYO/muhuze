@@ -159,3 +159,32 @@ class RolePermission(UUIDPKMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+
+
+class AccountPermission(UUIDPKMixin, TimestampMixin, Base):
+    """A permission granted directly to an account, bypassing roles
+    entirely. Independent of role membership in both directions: removing
+    a role never removes a direct permission an account also holds, and
+    revoking a direct permission never touches its roles. An account's
+    effective permissions are the union of its roles' permissions and its
+    direct permissions — see AuthorizationRepository.get_permission_codes.
+    GRANT only, deliberately — no DENY/override semantics. Introducing a
+    role-grants-but-account-denies precedence rule is a real design
+    problem for a financial platform's authorization; the union-only
+    model is simple and predictable, and precedence can be added later
+    if a concrete need for it shows up."""
+
+    __tablename__ = "account_permissions"
+    __table_args__ = (
+        UniqueConstraint("account_id", "permission_id", name="uq_account_permissions"),
+    )
+
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False, index=True
+    )
+    permission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("permissions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )

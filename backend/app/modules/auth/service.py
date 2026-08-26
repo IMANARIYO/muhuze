@@ -288,3 +288,35 @@ class AuthorizationService:
         await self.authorization.revoke_permission_from_role(
             role_id=role.id, permission_id=permission.id
         )
+
+    async def grant_direct_permission(
+        self, account_id: uuid.UUID, permission_code: str
+    ) -> None:
+        """Grants a permission straight to an account, independent of its
+        roles — e.g. one seller gets `products.publish` without changing
+        what every seller can do."""
+        if await self.accounts.get_by_id(account_id) is None:
+            raise AccountNotFoundError()
+        permission = await self.authorization.get_permission_by_code(permission_code)
+        if permission is None:
+            raise PermissionNotFoundError()
+        await self.authorization.assign_direct_permission(
+            account_id=account_id, permission_id=permission.id
+        )
+
+    async def revoke_direct_permission(
+        self, account_id: uuid.UUID, permission_code: str
+    ) -> None:
+        if await self.accounts.get_by_id(account_id) is None:
+            raise AccountNotFoundError()
+        permission = await self.authorization.get_permission_by_code(permission_code)
+        if permission is None:
+            raise PermissionNotFoundError()
+        await self.authorization.revoke_direct_permission(
+            account_id=account_id, permission_id=permission.id
+        )
+
+    async def list_direct_permissions(self, account_id: uuid.UUID) -> list[str]:
+        if await self.accounts.get_by_id(account_id) is None:
+            raise AccountNotFoundError()
+        return await self.authorization.get_direct_permission_codes(account_id)

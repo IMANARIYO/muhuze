@@ -128,29 +128,61 @@ the system.
 
 ---
 
-## `roles`, `permissions`, `account_roles`, `role_permissions`
+## `roles`, `permissions`, `account_roles`, `role_permissions`, `account_permissions`
 
-Models: `app/modules/auth/models.py::{Role, Permission, AccountRole, RolePermission}`
+Models: `app/modules/auth/models.py::{Role, Permission, AccountRole, RolePermission, AccountPermission}`
 
-Standard RBAC shape: `AccountRole` and `RolePermission` are the two
-many-to-many join tables, each with a `UniqueConstraint` preventing the same
-pair being granted twice.
+Standard RBAC shape, plus one deliberate extra: an account can hold a
+permission two ways — through a role, or granted directly. `AccountRole`,
+`RolePermission`, and `AccountPermission` are all many-to-many join tables,
+each with a `UniqueConstraint` preventing the same pair being granted twice.
 
 | Table | Columns beyond id/timestamps | Notes |
 |---|---|---|
-| `roles` | `name` (unique, indexed), `description` | Seeded by the migration that created this table: **`buyer`, `seller`, `admin`**. Dynamic — an admin can create more (no admin UI for this yet, but nothing in the schema prevents it). |
+| `roles` | `name` (unique, indexed), `description` | Seeded by the migration that created this table: **`buyer`, `seller`, `admin`**. Dynamic — an admin can grant/revoke these on accounts via the API; creating *new* roles isn't built (see [roadmap.md](roadmap.md)). |
 | `permissions` | `code` (unique, indexed), `name`, `description`, `resource` (indexed), `action` | **Empty catalog today** — code-defined, database-synced. See [permissions-sync.md](permissions-sync.md) for the full design; don't populate this by hand. |
 | `account_roles` | `account_id` (FK), `role_id` (FK) | Unique on `(account_id, role_id)` |
 | `role_permissions` | `role_id` (FK), `permission_id` (FK, `ondelete="CASCADE"`) | Unique on `(role_id, permission_id)`. The cascade means deleting a stale permission automatically cleans up its role assignments — see [permissions-sync.md](permissions-sync.md#why-deletion-is-safe-cascade-not-a-two-step-dance). |
+| `account_permissions` | `account_id` (FK), `permission_id` (FK, `ondelete="CASCADE"`) | Unique on `(account_id, permission_id)`. A permission granted straight to one account, bypassing roles — same cascade reasoning as `role_permissions`. |
 
 **Every account gets the `buyer` role automatically at registration**
 (`AuthService.register`). No other role is assigned automatically today —
-`seller` will be granted when the `sellers` module (paused mid-build) is
-wired up; `admin` has no assignment path yet (no admin module exists).
+`seller` and `admin` are granted via the role-management endpoints (see
+[README.md](README.md#endpoints)); `admin` also has the startup-bootstrap
+path (see [bootstrap.md](bootstrap.md)) for creating the very first one.
 
 **Permissions are not admin-creatable, unlike roles.** A permission that
 doesn't correspond to a real check in the code is meaningless. See
 [permissions-sync.md](permissions-sync.md).
+
+### Effective permissions: role-based ∪ direct
+
+`AuthorizationRepository.get_permission_codes` — what `has_permission` /
+`require_permission` / `/me/authorization` all actually use — is the
+**union** of an account's role-derived permissions and its direct grants,
+deduplicated:
+
+```
+effective_permissions(account) =
+    permissions from account's roles (via role_permissions)
+    ∪
+    permissions granted directly to the account (via account_permissions)
+```
+
+Concretely: a `seller` role might grant `products.create`, `products.read`,
+`products.update`. If this particular seller also needs
+`products.publish` without changing what *every* seller can do, grant it
+directly — `POST /auth/accounts/{id}/permissions`. It shows up in their
+effective permissions immediately, and if their `seller` role is later
+revoked, the direct grant is untouched (the two are fully independent —
+removing a role never removes a direct permission, and vice versa; verified
+in `tests/test_direct_permissions.py::test_direct_permission_survives_role_removal`).
+
+**GRANT only — no DENY.** There's no way for a direct permission (or
+anything else) to *revoke* a permission a role would otherwise grant.
+Introducing role-grants-but-account-denies precedence is a real design
+problem worth avoiding until there's a concrete need for it; union-only
+is simple and predictable.
 
 ### Using this from another module
 
@@ -176,4 +208,5 @@ accounts (1) ──── (0..N) verification_codes
 accounts (1) ──── (0..N) password_reset_tokens
 accounts (M) ──── (N) roles           via account_roles
 roles    (M) ──── (N) permissions     via role_permissions
+accounts (M) ──── (N) permissions     via account_permissions (direct grants)
 ```

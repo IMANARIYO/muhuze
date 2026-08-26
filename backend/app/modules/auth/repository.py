@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import (
     Account,
+    AccountPermission,
     AccountRole,
     PasswordResetToken,
     Permission,
@@ -195,7 +196,10 @@ class AuthorizationRepository:
         )
         return list(result.scalars().all())
 
-    async def get_permission_codes(self, account_id: uuid.UUID) -> list[str]:
+    async def get_role_permission_codes(self, account_id: uuid.UUID) -> list[str]:
+        """Permission codes the account holds through its roles only —
+        does not include direct grants. See get_permission_codes for the
+        union (effective permissions)."""
         result = await self.db.execute(
             select(Permission.code)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
@@ -203,6 +207,57 @@ class AuthorizationRepository:
             .where(AccountRole.account_id == account_id)
         )
         return list(result.scalars().all())
+
+    async def get_direct_permission_codes(self, account_id: uuid.UUID) -> list[str]:
+        """Permission codes granted directly to the account, bypassing
+        roles. See get_permission_codes for the union (effective
+        permissions)."""
+        result = await self.db.execute(
+            select(Permission.code)
+            .join(AccountPermission, AccountPermission.permission_id == Permission.id)
+            .where(AccountPermission.account_id == account_id)
+        )
+        return list(result.scalars().all())
+
+    async def get_permission_codes(self, account_id: uuid.UUID) -> list[str]:
+        """Effective permissions: the union of role-based and direct
+        grants, deduplicated. This is what authorization checks
+        (has_permission / require_permission) and /me/authorization use —
+        the caller shouldn't have to care which source a permission came
+        from."""
+        role_based = await self.get_role_permission_codes(account_id)
+        direct = await self.get_direct_permission_codes(account_id)
+        return sorted(set(role_based) | set(direct))
+
+    async def assign_direct_permission(
+        self, *, account_id: uuid.UUID, permission_id: uuid.UUID
+    ) -> None:
+        exists = await self.db.execute(
+            select(AccountPermission).where(
+                AccountPermission.account_id == account_id,
+                AccountPermission.permission_id == permission_id,
+            )
+        )
+        if exists.scalar_one_or_none() is not None:
+            return
+        self.db.add(
+            AccountPermission(account_id=account_id, permission_id=permission_id)
+        )
+        await self.db.flush()
+
+    async def revoke_direct_permission(
+        self, *, account_id: uuid.UUID, permission_id: uuid.UUID
+    ) -> None:
+        result = await self.db.execute(
+            select(AccountPermission).where(
+                AccountPermission.account_id == account_id,
+                AccountPermission.permission_id == permission_id,
+            )
+        )
+        account_permission = result.scalar_one_or_none()
+        if account_permission is not None:
+            await self.db.delete(account_permission)
+            await self.db.flush()
 
     async def get_role_by_id(self, role_id: uuid.UUID) -> Role | None:
         result = await self.db.execute(select(Role).where(Role.id == role_id))
