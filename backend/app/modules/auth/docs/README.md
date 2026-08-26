@@ -55,7 +55,9 @@ domain logic. See [roadmap.md](roadmap.md).
 | POST | `/api/v1/auth/email/verification/confirm` | Yes | Confirm the OTP, sets `Account.is_verified = true` |
 | POST | `/api/v1/auth/password/forgot` | No | Request a reset token by email (always 200 — doesn't reveal whether the email exists) |
 | POST | `/api/v1/auth/password/reset` | No (reset token in body) | Consume the token, set a new password, revoke all refresh tokens |
-| GET | `/api/v1/auth/me/authorization` | Yes | The caller's own roles + permissions |
+| GET | `/api/v1/auth/me/authorization` | Yes | The caller's own roles + permissions, combined |
+| GET | `/api/v1/auth/me/roles` | Yes | Just the caller's own roles — for a client that only needs one, without paying for both queries |
+| GET | `/api/v1/auth/me/permissions` | Yes | Just the caller's own effective permissions |
 | GET | `/api/v1/auth/roles` | Admin | List all roles |
 | GET | `/api/v1/auth/permissions` | Admin | List all permissions (the synced catalog — see [permissions-sync.md](permissions-sync.md)) |
 | POST | `/api/v1/auth/accounts/{account_id}/roles` | Admin | Grant an existing role to an account (body: `{"role_name": "..."}`) |

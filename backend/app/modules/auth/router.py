@@ -111,6 +111,26 @@ async def get_my_authorization(
     )
 
 
+@router.get("/me/roles")
+async def get_my_roles(
+    account: Account = Depends(get_current_account),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse:
+    roles = await controller.get_my_roles(account)
+    return success_response(data=roles, message="Roles retrieved successfully")
+
+
+@router.get("/me/permissions")
+async def get_my_permissions(
+    account: Account = Depends(get_current_account),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse:
+    permissions = await controller.get_my_permissions(account)
+    return success_response(
+        data=permissions, message="Permissions retrieved successfully"
+    )
+
+
 @router.get("/roles")
 async def list_roles(
     admin: Account = Depends(require_role("admin")),

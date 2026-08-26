@@ -232,6 +232,12 @@ class AuthorizationService:
         permissions = await self.authorization.get_permission_codes(account_id)
         return roles, permissions
 
+    async def get_my_roles(self, account_id: uuid.UUID) -> list[str]:
+        return await self.authorization.get_role_names(account_id)
+
+    async def get_my_permissions(self, account_id: uuid.UUID) -> list[str]:
+        return await self.authorization.get_permission_codes(account_id)
+
     async def has_role(self, account_id: uuid.UUID, *role_names: str) -> bool:
         roles = await self.authorization.get_role_names(account_id)
         return bool(set(role_names) & set(roles))

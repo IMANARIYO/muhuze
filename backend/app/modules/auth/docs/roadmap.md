@@ -42,7 +42,8 @@
 - [x] Default roles seeded in the migration: `buyer`, `seller`, `admin`
 - [x] `AuthorizationRepository` (role/permission lookups and assignment)
 - [x] Every account auto-assigned `buyer` at registration
-- [x] `GET /auth/me/authorization` — caller's own roles + permissions
+- [x] `GET /auth/me/authorization` — caller's own roles + permissions, combined
+- [x] `GET /auth/me/roles` / `GET /auth/me/permissions` — split out separately, fetched on demand after login rather than bundled into the login response (deliberate: keeps login lean, a client asks only when it actually needs authorization data)
 - [x] `require_role(*names)` / `require_permission(*codes)` dependency factories, usable by any module
 - [x] Permission metadata (`name`, `resource`, `action`) columns + `role_permissions.permission_id` `ondelete="CASCADE"`
 - [x] `PermissionDefinition` (`app/shared/permissions.py`) + central registry (`app/db/permissions.py`) + sync engine (`app/core/permissions_sync.py`) + CLI (`python -m app.scripts.sync_permissions [--remove-stale]`) — full design in [permissions-sync.md](permissions-sync.md)

@@ -93,6 +93,12 @@ class AuthController:
         roles, permissions = await self.authorization.get_my_authorization(account.id)
         return AuthorizationResponse(roles=roles, permissions=permissions)
 
+    async def get_my_roles(self, account: Account) -> list[str]:
+        return await self.authorization.get_my_roles(account.id)
+
+    async def get_my_permissions(self, account: Account) -> list[str]:
+        return await self.authorization.get_my_permissions(account.id)
+
     async def list_roles(self) -> list[RoleResponse]:
         roles = await self.authorization.list_roles()
         return [RoleResponse.model_validate(role) for role in roles]
