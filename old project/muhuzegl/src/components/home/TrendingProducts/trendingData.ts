@@ -1,0 +1,48 @@
+import type { TrendingProduct } from "./types";
+
+export const trendingProducts: TrendingProduct[] = [
+  {
+    id: 1,
+    name: "iPhone 16 Pro",
+    image: "/images/products/iphone.jpg",
+    price: "$1,100",
+    oldPrice: "$1,250",
+    seller: "Apple Rwanda",
+    location: "Kigali",
+    rating: 5,
+    sold: 340,
+  },
+  {
+    id: 2,
+    name: "MacBook Air M4",
+    image: "/images/products/macbook.jpg",
+    price: "$1,350",
+    oldPrice: "$1,500",
+    seller: "Computer World",
+    location: "Kigali",
+    rating: 5,
+    sold: 215,
+  },
+  {
+    id: 3,
+    name: "Toyota RAV4",
+    image: "/images/products/rav4.jpg",
+    price: "$23,000",
+    oldPrice: "$24,500",
+    seller: "Auto Rwanda",
+    location: "Musanze",
+    rating: 4.9,
+    sold: 54,
+  },
+  {
+    id: 4,
+    name: "Luxury Apartment",
+    image: "/images/products/apartment.jpg",
+    price: "$85,000",
+    oldPrice: "$90,000",
+    seller: "Dream Homes",
+    location: "Kigali",
+    rating: 5,
+    sold: 18,
+  },
+];
