@@ -60,8 +60,10 @@ domain logic. See [roadmap.md](roadmap.md).
 | GET | `/api/v1/auth/permissions` | Admin | List all permissions (the synced catalog — see [permissions-sync.md](permissions-sync.md)) |
 | POST | `/api/v1/auth/accounts/{account_id}/roles` | Admin | Grant an existing role to an account (body: `{"role_name": "..."}`) |
 | DELETE | `/api/v1/auth/accounts/{account_id}/roles/{role_name}` | Admin | Revoke a role from an account |
+| GET | `/api/v1/auth/accounts/{account_id}/roles` | Admin | List a specific account's roles |
 | POST | `/api/v1/auth/roles/{role_name}/permissions` | Admin | Grant an existing permission to a role (body: `{"permission_code": "..."}`) |
 | DELETE | `/api/v1/auth/roles/{role_name}/permissions/{permission_code}` | Admin | Revoke a permission from a role |
+| GET | `/api/v1/auth/roles/{role_name}/permissions` | Admin | List a specific role's permissions |
 | GET | `/api/v1/auth/accounts/{account_id}/permissions` | Admin | List an account's *direct* permission grants (not the role-derived ones — see [database.md](database.md#effective-permissions-role-based--direct)) |
 | POST | `/api/v1/auth/accounts/{account_id}/permissions` | Admin | Grant an existing permission directly to an account, bypassing roles (body: `{"permission_code": "..."}`) |
 | DELETE | `/api/v1/auth/accounts/{account_id}/permissions/{permission_code}` | Admin | Revoke a direct permission from an account |

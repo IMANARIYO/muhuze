@@ -263,6 +263,17 @@ class AuthorizationService:
             raise RoleNotFoundError()
         await self.authorization.revoke_role(account_id=account_id, role_id=role.id)
 
+    async def list_roles_for_account(self, account_id: uuid.UUID) -> list[Role]:
+        if await self.accounts.get_by_id(account_id) is None:
+            raise AccountNotFoundError()
+        return await self.authorization.get_roles_for_account(account_id)
+
+    async def list_permissions_for_role(self, role_name: str) -> list[Permission]:
+        role = await self.authorization.get_role_by_name(role_name)
+        if role is None:
+            raise RoleNotFoundError()
+        return await self.authorization.get_permissions_for_role(role.id)
+
     async def assign_permission_to_role(
         self, role_name: str, permission_code: str
     ) -> None:

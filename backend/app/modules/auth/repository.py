@@ -196,6 +196,18 @@ class AuthorizationRepository:
         )
         return list(result.scalars().all())
 
+    async def get_roles_for_account(self, account_id: uuid.UUID) -> list[Role]:
+        """Full Role rows (not just names) for an admin viewing an
+        arbitrary account — see get_role_names for the lightweight version
+        used by /me/authorization."""
+        result = await self.db.execute(
+            select(Role)
+            .join(AccountRole, AccountRole.role_id == Role.id)
+            .where(AccountRole.account_id == account_id)
+            .order_by(Role.name)
+        )
+        return list(result.scalars().all())
+
     async def get_role_permission_codes(self, account_id: uuid.UUID) -> list[str]:
         """Permission codes the account holds through its roles only —
         does not include direct grants. See get_permission_codes for the
@@ -286,6 +298,15 @@ class AuthorizationRepository:
 
     async def get_all_permissions(self) -> list[Permission]:
         result = await self.db.execute(select(Permission).order_by(Permission.code))
+        return list(result.scalars().all())
+
+    async def get_permissions_for_role(self, role_id: uuid.UUID) -> list[Permission]:
+        result = await self.db.execute(
+            select(Permission)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role_id)
+            .order_by(Permission.code)
+        )
         return list(result.scalars().all())
 
     async def assign_permission_to_role(

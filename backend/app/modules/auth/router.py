@@ -153,6 +153,28 @@ async def revoke_role_from_account(
     return success_response(message="Role revoked successfully")
 
 
+@router.get("/accounts/{account_id}/roles")
+async def list_roles_for_account(
+    account_id: uuid.UUID,
+    admin: Account = Depends(require_role("admin")),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse:
+    roles = await controller.list_roles_for_account(account_id)
+    return success_response(data=roles, message="Account roles retrieved successfully")
+
+
+@router.get("/roles/{role_name}/permissions")
+async def list_permissions_for_role(
+    role_name: str,
+    admin: Account = Depends(require_role("admin")),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse:
+    permissions = await controller.list_permissions_for_role(role_name)
+    return success_response(
+        data=permissions, message="Role permissions retrieved successfully"
+    )
+
+
 @router.post("/roles/{role_name}/permissions", status_code=status.HTTP_201_CREATED)
 async def assign_permission_to_role(
     role_name: str,

@@ -113,6 +113,18 @@ class AuthController:
     ) -> None:
         await self.authorization.revoke_role_from_account(account_id, role_name)
 
+    async def list_roles_for_account(self, account_id: uuid.UUID) -> list[RoleResponse]:
+        roles = await self.authorization.list_roles_for_account(account_id)
+        return [RoleResponse.model_validate(role) for role in roles]
+
+    async def list_permissions_for_role(
+        self, role_name: str
+    ) -> list[PermissionResponse]:
+        permissions = await self.authorization.list_permissions_for_role(role_name)
+        return [
+            PermissionResponse.model_validate(permission) for permission in permissions
+        ]
+
     async def assign_permission_to_role(
         self, role_name: str, payload: AssignPermissionRequest
     ) -> None:

@@ -217,6 +217,98 @@ async def test_admin_can_revoke_role_from_account(
     assert authz.json()["data"]["roles"] == ["buyer"]
 
 
+async def test_list_roles_for_account_requires_admin(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    target_email, non_admin_tokens = await register_and_login(client)
+    target_id = await get_account_id(db, target_email)
+
+    response = await client.get(
+        f"/api/v1/auth/accounts/{target_id}/roles",
+        headers=auth_headers(non_admin_tokens),
+    )
+    assert response.status_code == 403
+
+
+async def test_admin_can_list_an_accounts_roles(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    admin_headers = auth_headers(admin_tokens)
+    target_email, _ = await register_and_login(client)
+    target_id = await get_account_id(db, target_email)
+
+    await client.post(
+        f"/api/v1/auth/accounts/{target_id}/roles",
+        json={"role_name": "seller"},
+        headers=admin_headers,
+    )
+
+    response = await client.get(
+        f"/api/v1/auth/accounts/{target_id}/roles", headers=admin_headers
+    )
+    assert response.status_code == 200
+    names = sorted(role["name"] for role in response.json()["data"])
+    assert names == ["buyer", "seller"]
+
+
+async def test_listing_roles_for_unknown_account_is_404(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    response = await client.get(
+        f"/api/v1/auth/accounts/{uuid.uuid4()}/roles",
+        headers=auth_headers(admin_tokens),
+    )
+    assert response.status_code == 404
+
+
+async def test_list_permissions_for_role_requires_admin(client: AsyncClient) -> None:
+    _, tokens = await register_and_login(client)
+    response = await client.get(
+        "/api/v1/auth/roles/seller/permissions", headers=auth_headers(tokens)
+    )
+    assert response.status_code == 403
+
+
+async def test_admin_can_list_a_roles_permissions(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    admin_headers = auth_headers(admin_tokens)
+    code = unique_permission_code()
+    await sync_permissions(db, [permission_definition(code)])
+    await db.commit()
+    try:
+        await client.post(
+            "/api/v1/auth/roles/seller/permissions",
+            json={"permission_code": code},
+            headers=admin_headers,
+        )
+
+        response = await client.get(
+            "/api/v1/auth/roles/seller/permissions", headers=admin_headers
+        )
+        assert response.status_code == 200
+        assert code in {p["code"] for p in response.json()["data"]}
+    finally:
+        await client.delete(
+            f"/api/v1/auth/roles/seller/permissions/{code}", headers=admin_headers
+        )
+        await cleanup_permission(db, code)
+
+
+async def test_listing_permissions_for_unknown_role_is_404(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    response = await client.get(
+        "/api/v1/auth/roles/does-not-exist/permissions",
+        headers=auth_headers(admin_tokens),
+    )
+    assert response.status_code == 404
+
+
 # --- assigning/revoking a permission on a role, and it propagating ----------
 
 
