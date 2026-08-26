@@ -11,6 +11,7 @@ from app.core.storage import (
     StorageNotConfiguredError,
     UnsupportedFileTypeError,
     delete_file,
+    get_signed_url,
     upload_file,
 )
 
@@ -55,6 +56,14 @@ async def test_delete_raises_when_not_configured(
         await delete_file("some-public-id")
 
 
+async def test_get_signed_url_raises_when_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "cloudinary_cloud_name", None)
+    with pytest.raises(StorageNotConfiguredError):
+        await get_signed_url("some-public-id")
+
+
 async def test_upload_rejects_disallowed_content_type() -> None:
     file = make_upload_file(content_type="application/x-msdownload")
     with pytest.raises(UnsupportedFileTypeError):
@@ -68,15 +77,17 @@ async def test_upload_allows_permitted_content_type(
 ) -> None:
     captured = {}
 
-    def fake_do_upload(file_obj, *, folder, public_id):
+    def fake_do_upload(file_obj, *, folder, public_id, delivery_type):
         captured["folder"] = folder
         captured["public_id"] = public_id
+        captured["delivery_type"] = delivery_type
         return {
             "public_id": public_id,
             "url": "http://res.cloudinary.com/x",
             "secure_url": "https://res.cloudinary.com/x",
             "format": "png",
             "resource_type": "image",
+            "type": delivery_type,
             "bytes": 11,
         }
 
@@ -89,9 +100,40 @@ async def test_upload_allows_permitted_content_type(
     )
 
     assert captured["folder"] == "products"
+    assert captured["delivery_type"] == "upload"
     assert result.format == "png"
     assert result.bytes == 11
+    assert result.delivery_type == "upload"
     assert result.public_id == captured["public_id"]
+
+
+async def test_upload_with_authenticated_delivery_type_is_passed_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    def fake_do_upload(file_obj, *, folder, public_id, delivery_type):
+        captured["delivery_type"] = delivery_type
+        return {
+            "public_id": public_id,
+            "url": "http://x",
+            "secure_url": "https://x",
+            "format": "pdf",
+            "resource_type": "raw",
+            "type": delivery_type,
+            "bytes": 100,
+        }
+
+    monkeypatch.setattr(storage, "_do_upload", fake_do_upload)
+
+    result = await upload_file(
+        make_upload_file(content_type="application/pdf"),
+        folder="seller_verification",
+        delivery_type="authenticated",
+    )
+
+    assert captured["delivery_type"] == "authenticated"
+    assert result.delivery_type == "authenticated"
 
 
 async def test_upload_rejects_file_over_size_limit() -> None:
@@ -106,12 +148,13 @@ async def test_upload_allows_file_within_size_limit(
     monkeypatch.setattr(
         storage,
         "_do_upload",
-        lambda file_obj, *, folder, public_id: {
+        lambda file_obj, *, folder, public_id, delivery_type: {
             "public_id": public_id,
             "url": "http://x",
             "secure_url": "https://x",
             "format": None,
             "resource_type": "raw",
+            "type": delivery_type,
             "bytes": 5,
         },
     )
@@ -120,17 +163,30 @@ async def test_upload_allows_file_within_size_limit(
     assert result.bytes == 5
 
 
-async def test_delete_calls_sdk_with_given_public_id_and_resource_type(
+async def test_delete_calls_sdk_with_given_public_id_resource_type_and_delivery_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = {}
 
-    def fake_do_delete(public_id, *, resource_type):
+    def fake_do_delete(public_id, *, resource_type, delivery_type):
         captured["public_id"] = public_id
         captured["resource_type"] = resource_type
+        captured["delivery_type"] = delivery_type
 
     monkeypatch.setattr(storage, "_do_delete", fake_do_delete)
 
-    await delete_file("abc123", resource_type="raw")
+    await delete_file("abc123", resource_type="raw", delivery_type="authenticated")
 
-    assert captured == {"public_id": "abc123", "resource_type": "raw"}
+    assert captured == {
+        "public_id": "abc123",
+        "resource_type": "raw",
+        "delivery_type": "authenticated",
+    }
+
+
+async def test_get_signed_url_returns_a_url_for_the_public_id() -> None:
+    # Real (offline) signing logic — no monkeypatch needed, cloudinary_url()
+    # never makes a network call.
+    url = await get_signed_url("abc123", resource_type="raw")
+    assert "abc123" in url
+    assert url.startswith("https://")

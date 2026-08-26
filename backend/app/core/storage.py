@@ -5,6 +5,7 @@ from typing import Any
 
 import cloudinary
 import cloudinary.uploader
+import cloudinary.utils
 from fastapi import UploadFile
 
 from app.core.config import settings
@@ -30,6 +31,7 @@ class UploadedFile:
     secure_url: str
     format: str | None
     resource_type: str
+    delivery_type: str
     bytes: int
 
 
@@ -73,7 +75,9 @@ def _validate(
         )
 
 
-def _do_upload(file_obj: Any, *, folder: str, public_id: str) -> dict[str, Any]:
+def _do_upload(
+    file_obj: Any, *, folder: str, public_id: str, delivery_type: str
+) -> dict[str, Any]:
     """Isolated so tests can monkeypatch this one function instead of the
     whole Cloudinary SDK. The SDK itself is synchronous — called via
     asyncio.to_thread so it doesn't block the event loop. upload_large
@@ -81,12 +85,25 @@ def _do_upload(file_obj: Any, *, folder: str, public_id: str) -> dict[str, Any]:
     large files via Cloudinary's chunked upload API, so callers never need
     to know or care how big a given file turns out to be."""
     return cloudinary.uploader.upload_large(
-        file_obj, folder=folder, public_id=public_id, resource_type="auto"
+        file_obj,
+        folder=folder,
+        public_id=public_id,
+        resource_type="auto",
+        type=delivery_type,
     )
 
 
-def _do_delete(public_id: str, *, resource_type: str) -> None:
-    cloudinary.uploader.destroy(public_id, resource_type=resource_type)
+def _do_delete(public_id: str, *, resource_type: str, delivery_type: str) -> None:
+    cloudinary.uploader.destroy(
+        public_id, resource_type=resource_type, type=delivery_type
+    )
+
+
+def _do_get_signed_url(public_id: str, *, resource_type: str) -> str:
+    url, _options = cloudinary.utils.cloudinary_url(
+        public_id, resource_type=resource_type, type="authenticated", sign_url=True
+    )
+    return url
 
 
 async def upload_file(
@@ -95,6 +112,7 @@ async def upload_file(
     folder: str,
     allowed_content_types: set[str] | None = None,
     max_size_bytes: int | None = None,
+    delivery_type: str = "upload",
 ) -> UploadedFile:
     """Uploads `file` to Cloudinary under `folder` — e.g. "seller_verification",
     "products". Deliberately doesn't hardcode what folders/categories exist:
@@ -104,6 +122,12 @@ async def upload_file(
     sync. Raises StorageNotConfiguredError if Cloudinary credentials aren't
     set, UnsupportedFileTypeError / FileTooLargeError on failed validation
     — both checked before anything is sent over the network.
+
+    `delivery_type`: "upload" (default) — publicly reachable via `url`/
+    `secure_url`, fine for product images etc. "authenticated" — not
+    publicly reachable at all; retrieve access via `get_signed_url()`,
+    which produces a short-lived signed URL. Use "authenticated" for
+    anything sensitive (identity documents, etc.) — never "upload".
     """
     _ensure_configured()
     _validate(
@@ -112,7 +136,11 @@ async def upload_file(
 
     public_id = uuid.uuid4().hex
     result = await asyncio.to_thread(
-        _do_upload, file.file, folder=folder, public_id=public_id
+        _do_upload,
+        file.file,
+        folder=folder,
+        public_id=public_id,
+        delivery_type=delivery_type,
     )
 
     return UploadedFile(
@@ -121,10 +149,23 @@ async def upload_file(
         secure_url=result["secure_url"],
         format=result.get("format"),
         resource_type=result["resource_type"],
+        delivery_type=result.get("type", delivery_type),
         bytes=result["bytes"],
     )
 
 
-async def delete_file(public_id: str, *, resource_type: str = "image") -> None:
+async def delete_file(
+    public_id: str, *, resource_type: str = "image", delivery_type: str = "upload"
+) -> None:
     _ensure_configured()
-    await asyncio.to_thread(_do_delete, public_id, resource_type=resource_type)
+    await asyncio.to_thread(
+        _do_delete, public_id, resource_type=resource_type, delivery_type=delivery_type
+    )
+
+
+async def get_signed_url(public_id: str, *, resource_type: str = "image") -> str:
+    """A short-lived signed URL for a file uploaded with
+    `delivery_type="authenticated"`. Cheap and offline — no network call,
+    just HMAC-signs the URL locally — so this isn't wrapped in to_thread."""
+    _ensure_configured()
+    return _do_get_signed_url(public_id, resource_type=resource_type)

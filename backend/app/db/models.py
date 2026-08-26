@@ -16,4 +16,5 @@ from app.modules.auth.models import (  # noqa: F401
     RolePermission,
     VerificationCode,
 )
+from app.modules.sellers.models import Seller, SellerDocument  # noqa: F401
 from app.modules.users.models import Profile  # noqa: F401
