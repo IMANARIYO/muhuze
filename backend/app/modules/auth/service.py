@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.core import notifications
 from app.core.config import settings
+from app.core.database import ensure_aware
 from app.core.security import (
     create_access_token,
     generate_otp,
@@ -82,7 +83,9 @@ class AuthService:
         stored = await self.refresh_tokens.get_by_token_hash(
             hash_token(raw_refresh_token)
         )
-        is_expired = stored is not None and stored.expires_at < datetime.now(UTC)
+        is_expired = stored is not None and ensure_aware(
+            stored.expires_at
+        ) < datetime.now(UTC)
         if stored is None or stored.revoked_at is not None or is_expired:
             raise InvalidRefreshTokenError()
 

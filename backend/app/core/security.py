@@ -5,10 +5,20 @@ from typing import Any
 
 import jwt
 from pwdlib import PasswordHash
+from pwdlib.hashers.argon2 import Argon2Hasher
 
 from app.core.config import settings
 
-password_hasher = PasswordHash.recommended()
+# Argon2's cost is the whole point in dev/production — it's deliberately
+# slow to resist brute-forcing. In tests that same slowness (~160ms per
+# hash) is pure overhead with no security benefit, and dominates the test
+# suite's runtime far more than the database does. ENVIRONMENT=test is set
+# by tests/conftest.py, before this module is first imported.
+password_hasher = (
+    PasswordHash([Argon2Hasher(time_cost=1, memory_cost=8, parallelism=1)])
+    if settings.environment == "test"
+    else PasswordHash.recommended()
+)
 
 
 def hash_password(password: str) -> str:
