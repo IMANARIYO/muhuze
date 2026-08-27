@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
 from app.modules.auth.repository import AccountRepository, AuthorizationRepository
+from app.modules.products.models import CategoryAttribute
 
 _ACTIVE = "active"
 
@@ -114,6 +115,10 @@ async def publish_product_with_listing(
     *,
     name: str | None = None,
     price: float = 100.0,
+    stock: int = 5,
+    condition: str = "new",
+    category_parent_id: uuid.UUID | None = None,
+    brand_id: uuid.UUID | None = None,
 ) -> dict:
     """Creates an active seller, an active product (with an image and a
     variant), and an approved listing for it. Returns the assembled
@@ -123,7 +128,12 @@ async def publish_product_with_listing(
     admin_headers = auth_headers(admin_tokens)
 
     category_resp = await client.post(
-        "/api/v1/categories", json={"name": unique_name("Category")}, headers=admin_headers
+        "/api/v1/categories",
+        json={
+            "name": unique_name("Category"),
+            **({"parent_id": str(category_parent_id)} if category_parent_id else {}),
+        },
+        headers=admin_headers,
     )
     category_id = category_resp.json()["data"]["id"]
     attribute_resp = await client.post(
@@ -135,10 +145,11 @@ async def publish_product_with_listing(
     seller_headers = auth_headers(seller_tokens)
 
     product_name = name or unique_name("Product")
+    product_payload = {"category_id": category_id, "name": product_name}
+    if brand_id is not None:
+        product_payload["brand_id"] = str(brand_id)
     product_resp = await client.post(
-        "/api/v1/products",
-        json={"category_id": category_id, "name": product_name},
-        headers=seller_headers,
+        "/api/v1/products", json=product_payload, headers=seller_headers
     )
     product_id = product_resp.json()["data"]["id"]
 
@@ -164,7 +175,12 @@ async def publish_product_with_listing(
 
     listing_resp = await client.post(
         "/api/v1/listings",
-        json={"variant_id": variant_id, "price": price, "stock": 5},
+        json={
+            "variant_id": variant_id,
+            "price": price,
+            "stock": stock,
+            "condition": condition,
+        },
         headers=seller_headers,
     )
     listing_id = listing_resp.json()["data"]["id"]
@@ -182,6 +198,8 @@ async def publish_product_with_listing(
         "attribute_id": attribute_id,
         "product_name": product_name,
         "price": price,
+        "stock": stock,
+        "condition": condition,
     }
 
 
@@ -317,3 +335,150 @@ async def test_product_detail_draft_product_404(
     # never submitted/approved -> still draft, should not be in the public catalog
     response = await client.get(f"/api/v1/catalog/products/{product_id}")
     assert response.status_code == 404
+
+
+# --- GET /catalog/filters ---------------------------------------------------
+
+
+async def test_filters_returns_price_conditions_brands_attributes(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = await publish_product_with_listing(client, db, monkeypatch, price=250.0)
+    response = await client.get(
+        "/api/v1/catalog/filters", params={"category_id": ctx["category_id"]}
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert ctx["category_id"] in data["category_ids"]
+    assert data["price_range"] == {"min": 250.0, "max": 250.0}
+    assert data["conditions"] == ["new"]
+    # no brand and no category_attribute linkage yet -> empty facets
+    assert data["brands"] == []
+    assert data["attributes"] == []
+
+
+async def test_filters_attribute_facet_when_category_attribute_configured(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = await publish_product_with_listing(client, db, monkeypatch)
+    # No API exists yet to link an attribute to a category -> seed the
+    # CategoryAttribute junction directly (is_filterable=true) so the facet
+    # logic can be exercised.
+    db.add(
+        CategoryAttribute(
+            category_id=ctx["category_id"],
+            attribute_id=ctx["attribute_id"],
+            is_filterable=True,
+        )
+    )
+    await db.commit()
+
+    response = await client.get(
+        "/api/v1/catalog/filters", params={"category_id": ctx["category_id"]}
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data["attributes"]) == 1
+    attr = data["attributes"][0]
+    assert attr["attribute_id"] == str(ctx["attribute_id"])
+    assert attr["values"] == ["Black"]
+
+
+# --- filter params on GET /catalog -------------------------------------------
+
+
+async def test_catalog_filters_by_price_range(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = await publish_product_with_listing(client, db, monkeypatch, price=300.0)
+    await publish_product_with_listing(client, db, monkeypatch, price=900.0)
+
+    resp = await client.get(
+        "/api/v1/catalog", params={"min_price": 500, "max_price": 1000}
+    )
+    prices = [i["price"] for i in resp.json()["data"]]
+    assert 900.0 in prices
+    assert 300.0 not in prices
+
+
+async def test_catalog_filters_by_condition_and_stock(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = await publish_product_with_listing(
+        client, db, monkeypatch, condition="used", stock=0
+    )
+    await publish_product_with_listing(
+        client, db, monkeypatch, condition="new", stock=3
+    )
+
+    cond_resp = await client.get(
+        "/api/v1/catalog", params={"condition": ["new"]}
+    )
+    conditions = [i["condition"] for i in cond_resp.json()["data"]]
+    assert conditions and all(c == "new" for c in conditions)
+
+    stock_resp = await client.get("/api/v1/catalog", params={"in_stock": "true"})
+    stockzed = stock_resp.json()["data"]
+    assert all(i["stock"] > 0 for i in stockzed)
+
+
+async def test_catalog_filters_by_attribute_value(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = await publish_product_with_listing(client, db, monkeypatch)
+    db.add(
+        CategoryAttribute(
+            category_id=ctx["category_id"],
+            attribute_id=ctx["attribute_id"],
+            is_filterable=True,
+        )
+    )
+    await db.commit()
+
+    resp = await client.get(
+        "/api/v1/catalog",
+        params={"attribute_id": [str(ctx["attribute_id"])], "value": ["Black"]},
+    )
+    listing_ids = [i["listing_id"] for i in resp.json()["data"]]
+    assert ctx["listing_id"] in listing_ids
+
+    # A value with no matching variant returns nothing
+    resp2 = await client.get(
+        "/api/v1/catalog",
+        params={"attribute_id": [str(ctx["attribute_id"])], "value": ["Gold"]},
+    )
+    assert resp2.json()["data"] == []
+
+
+async def test_catalog_category_filters_include_subcategories(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    admin_headers = auth_headers(admin_tokens)
+    parent = await client.post(
+        "/api/v1/categories", json={"name": unique_name("Parent")}, headers=admin_headers
+    )
+    parent_id = uuid.UUID(parent.json()["data"]["id"])
+
+    # Product lives under a CHILD category of `parent`.
+    ctx = await publish_product_with_listing(
+        client, db, monkeypatch, category_parent_id=parent_id
+    )
+    assert ctx["category_id"] != parent_id
+
+    # Selecting the parent must surface the product in the child category.
+    resp = await client.get("/api/v1/catalog", params={"category_id": str(parent_id)})
+    listing_ids = [i["listing_id"] for i in resp.json()["data"]]
+    assert ctx["listing_id"] in listing_ids
+
+
+async def test_catalog_newest_sort(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await publish_product_with_listing(client, db, monkeypatch, price=500.0)
+    await publish_product_with_listing(client, db, monkeypatch, price=100.0)
+
+    resp = await client.get("/api/v1/catalog", params={"sort": "newest"})
+    data = resp.json()["data"]
+    # created_at desc -> the later listing is first; both prices present
+    assert {i["price"] for i in data} == {500.0, 100.0}

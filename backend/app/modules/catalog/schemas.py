@@ -111,3 +111,49 @@ class CatalogProductDetail(BaseModel):
     variants: list[CatalogVariantDetail] = Field(
         description="Every active variant, each with its current seller offers"
     )
+
+
+class CatalogFilterAttribute(BaseModel):
+    """One dynamic, category-aware attribute filter for the frontend to
+    render — e.g. Storage with values [128GB, 256GB]. Derived from
+    `category_attributes` where `is_filterable` is true, plus the distinct
+    values actually present among active offers."""
+
+    attribute_id: uuid.UUID = Field(description="Attribute ID")
+    name: str = Field(description="Attribute display name (e.g. 'Storage')")
+    input_type: str = Field(description="select | text | number | boolean")
+    values: list[str] = Field(
+        description="Distinct values present among currently active offers"
+    )
+
+
+class CatalogFilterOption(BaseModel):
+    """A branded filter checkbox for a given filter group."""
+
+    id: uuid.UUID = Field(description="The value's ID (e.g. brand id)")
+    name: str = Field(description="Display name (e.g. 'Samsung')")
+
+
+class CatalogFilters(BaseModel):
+    """What the frontend should render for a category's filter sidebar.
+    Nothing here is hardcoded per category — everything derives from the
+    category/attribute configuration and the data currently on sale."""
+
+    category_id: uuid.UUID | None = Field(
+        description="Category the filters apply to (null = every category)"
+    )
+    category_ids: list[uuid.UUID] = Field(
+        description="Selected category plus all its descendants"
+    )
+    brands: list[CatalogFilterOption] = Field(
+        description="Active brands present among what's for sale"
+    )
+    attributes: list[CatalogFilterAttribute] = Field(
+        description="Filterable attributes (from category_attributes) with live values"
+    )
+    price_range: dict[str, float] = Field(
+        description="Min/max price among active offers: {'min': .., 'max': ..}"
+    )
+    conditions: list[str] = Field(
+        description="Distinct conditions available: new | like_new | used"
+    )

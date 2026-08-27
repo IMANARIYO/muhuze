@@ -2,6 +2,9 @@ import uuid
 
 from app.modules.catalog.repository import CatalogRepository
 from app.modules.catalog.schemas import (
+    CatalogFilterAttribute,
+    CatalogFilterOption,
+    CatalogFilters,
     CatalogImage,
     CatalogListingItem,
     CatalogOffer,
@@ -37,11 +40,85 @@ class CatalogService:
         brand_id: uuid.UUID | None,
         search: str | None,
         sort: str | None,
+        min_price: float | None,
+        max_price: float | None,
+        conditions: list[str] | None,
+        in_stock: bool,
+        filters: dict | None,
     ) -> list[CatalogListingItem]:
+        category_ids = (
+            await self.catalog.get_category_ids_including_descendants(category_id)
+            if category_id is not None
+            else None
+        )
         listings = await self.catalog.list_active_listings(
-            category_id=category_id, brand_id=brand_id, search=search, sort=sort
+            category_ids=category_ids,
+            brand_id=brand_id,
+            search=search,
+            sort=sort,
+            min_price=min_price,
+            max_price=max_price,
+            conditions=conditions,
+            in_stock=in_stock,
+            filters=filters,
         )
         return await self._assemble_listing_items(listings)
+
+    async def get_filters(
+        self, category_id: uuid.UUID | None
+    ) -> CatalogFilters:
+        """The dynamic, category-aware filter sidebar for the frontend.
+
+        `category_id` may be None (whole catalog) or a single category —
+        either way we expand it to include every descendant, then derive the
+        filter options from what is *actually on sale*, so the UI never
+        renders a filter with no results behind it."""
+        category_ids = (
+            await self.catalog.get_category_ids_including_descendants(category_id)
+            if category_id is not None
+            else []
+        )
+
+        brands = await self.catalog.get_filter_brands(category_ids)
+        conditions = await self.catalog.get_filter_conditions(category_ids)
+        price_range = await self.catalog.get_filter_price_range(category_ids)
+
+        category_attrs = await self.catalog.get_filterable_attributes(category_ids)
+        attribute_ids = [ca.attribute_id for ca in category_attrs]
+        attributes_by_id = await self.catalog.get_attributes_by_ids(attribute_ids)
+        variant_ids = await self.catalog.get_active_variant_ids_in_categories(
+            category_ids
+        )
+        values_by_attribute = await self.catalog.get_filter_values(
+            variant_ids, attribute_ids
+        )
+
+        attributes = [
+            CatalogFilterAttribute(
+                attribute_id=ca.attribute_id,
+                name=attributes_by_id[ca.attribute_id].name,
+                input_type=attributes_by_id[ca.attribute_id].input_type,
+                values=values_by_attribute.get(ca.attribute_id, []),
+            )
+            for ca in category_attrs
+            if ca.attribute_id in attributes_by_id
+            and values_by_attribute.get(ca.attribute_id)
+        ]
+
+        return CatalogFilters(
+            category_id=category_id,
+            category_ids=category_ids,
+            brands=[
+                CatalogFilterOption(id=b.id, name=b.name) for b in brands
+            ],
+            attributes=attributes,
+            price_range=(
+                {"min": price_range[0], "max": price_range[1]}
+                if price_range is not None
+                else {}
+            ),
+            conditions=conditions,
+        )
 
     async def get_product_detail(
         self, product_id: uuid.UUID
