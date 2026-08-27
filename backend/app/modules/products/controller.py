@@ -152,23 +152,38 @@ class ProductController:
         category_id: uuid.UUID | None,
         brand_id: uuid.UUID | None,
         status: str | None,
+        search: str | None = None,
     ) -> list[ProductResponse]:
         products = await self.products.list_all(
-            category_id=category_id, brand_id=brand_id, status=status
+            category_id=category_id, brand_id=brand_id, status=status, search=search
         )
         return [ProductResponse.model_validate(product) for product in products]
 
-    async def create_product(self, payload: ProductCreateRequest) -> ProductResponse:
+    async def list_my_products(self, seller_id: uuid.UUID) -> list[ProductResponse]:
+        products = await self.products.list_mine(seller_id)
+        return [ProductResponse.model_validate(product) for product in products]
+
+    async def create_product(
+        self,
+        payload: ProductCreateRequest,
+        *,
+        created_by_seller_id: uuid.UUID | None = None,
+    ) -> ProductResponse:
         product = await self.products.create(
             category_id=payload.category_id,
             brand_id=payload.brand_id,
             name=payload.name,
             description=payload.description,
+            created_by_seller_id=created_by_seller_id,
         )
         return ProductResponse.model_validate(product)
 
     async def update_product(
-        self, product_id: uuid.UUID, payload: ProductUpdateRequest
+        self,
+        product_id: uuid.UUID,
+        payload: ProductUpdateRequest,
+        *,
+        requester_seller_id: uuid.UUID | None = None,
     ) -> ProductResponse:
         product = await self.products.update(
             product_id,
@@ -176,11 +191,16 @@ class ProductController:
             brand_id=payload.brand_id,
             name=payload.name,
             description=payload.description,
+            requester_seller_id=requester_seller_id,
         )
         return ProductResponse.model_validate(product)
 
-    async def submit_for_review(self, product_id: uuid.UUID) -> ProductResponse:
-        product = await self.products.submit_for_review(product_id)
+    async def submit_for_review(
+        self, product_id: uuid.UUID, *, requester_seller_id: uuid.UUID | None = None
+    ) -> ProductResponse:
+        product = await self.products.submit_for_review(
+            product_id, requester_seller_id=requester_seller_id
+        )
         return ProductResponse.model_validate(product)
 
     async def approve(self, product_id: uuid.UUID) -> ProductResponse:
@@ -206,7 +226,11 @@ class ProductController:
         return [self._to_variant_response(variant, values) for variant, values in pairs]
 
     async def create_variant(
-        self, product_id: uuid.UUID, payload: ProductVariantCreateRequest
+        self,
+        product_id: uuid.UUID,
+        payload: ProductVariantCreateRequest,
+        *,
+        requester_seller_id: uuid.UUID | None = None,
     ) -> ProductVariantResponse:
         variant, values = await self.variants.create(
             product_id,
@@ -214,6 +238,7 @@ class ProductController:
             attribute_values=[
                 (item.attribute_id, item.value) for item in payload.attribute_values
             ],
+            requester_seller_id=requester_seller_id,
         )
         return self._to_variant_response(variant, values)
 
@@ -222,12 +247,17 @@ class ProductController:
         product_id: uuid.UUID,
         variant_id: uuid.UUID,
         payload: ProductVariantUpdateRequest,
+        *,
+        requester_seller_id: uuid.UUID | None = None,
     ) -> ProductVariantResponse:
         existing = await self.variants.get_by_id(variant_id)
         if existing.product_id != product_id:
             raise ProductVariantNotFoundError()
         variant = await self.variants.update(
-            variant_id, sku_code=payload.sku_code, status=payload.status
+            variant_id,
+            sku_code=payload.sku_code,
+            status=payload.status,
+            requester_seller_id=requester_seller_id,
         )
         values = await self.variants.list_attribute_values(variant.id)
         return self._to_variant_response(variant, values)
@@ -239,13 +269,31 @@ class ProductController:
         return [await self._to_image_response(image) for image in images]
 
     async def upload_image(
-        self, product_id: uuid.UUID, *, file: UploadFile, is_primary: bool
+        self,
+        product_id: uuid.UUID,
+        *,
+        file: UploadFile,
+        is_primary: bool,
+        requester_seller_id: uuid.UUID | None = None,
     ) -> ProductImageResponse:
-        image = await self.images.upload(product_id, file=file, is_primary=is_primary)
+        image = await self.images.upload(
+            product_id,
+            file=file,
+            is_primary=is_primary,
+            requester_seller_id=requester_seller_id,
+        )
         return await self._to_image_response(image)
 
-    async def delete_image(self, product_id: uuid.UUID, image_id: uuid.UUID) -> None:
-        await self.images.delete(product_id, image_id)
+    async def delete_image(
+        self,
+        product_id: uuid.UUID,
+        image_id: uuid.UUID,
+        *,
+        requester_seller_id: uuid.UUID | None = None,
+    ) -> None:
+        await self.images.delete(
+            product_id, image_id, requester_seller_id=requester_seller_id
+        )
 
     # --- shared -----------------------------------------------------------
 

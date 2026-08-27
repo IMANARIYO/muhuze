@@ -117,6 +117,9 @@ class ProductResponse(BaseModel):
     id: uuid.UUID = Field(description="Product ID")
     category_id: uuid.UUID = Field(description="Category ID")
     brand_id: uuid.UUID | None = Field(description="Brand ID (if assigned)")
+    created_by_seller_id: uuid.UUID | None = Field(
+        description="Seller who requested this product, if any (null means admin-curated)"
+    )
     name: str = Field(description="Product name")
     slug: str = Field(description="URL-safe slug (auto-generated from name)")
     description: str | None = Field(description="Product description")

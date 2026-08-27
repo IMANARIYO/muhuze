@@ -6,23 +6,21 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class SellerRegistrationRequest(BaseModel):
     business_name: str = Field(
-        min_length=1, max_length=150,
-        description="Business or shop name (e.g. 'Jean's Electronics')"
+        min_length=1,
+        max_length=150,
+        description="Business or shop name (e.g. 'Jean's Electronics')",
     )
     business_description: str | None = Field(
-        default=None,
-        description="Optional description of what the business sells"
+        default=None, description="Optional description of what the business sells"
     )
 
 
 class SellerUpdateRequest(BaseModel):
     business_name: str = Field(
-        min_length=1, max_length=150,
-        description="Business or shop name"
+        min_length=1, max_length=150, description="Business or shop name"
     )
     business_description: str | None = Field(
-        default=None,
-        description="Optional description of what the business sells"
+        default=None, description="Optional description of what the business sells"
     )
 
 
@@ -48,8 +46,12 @@ class SellerResponse(BaseModel):
     reviewed_at: datetime | None = Field(
         description="When the seller was last reviewed (UTC, null if never reviewed)"
     )
-    created_at: datetime = Field(description="When the seller profile was created (UTC)")
-    updated_at: datetime = Field(description="When the seller profile was last updated (UTC)")
+    created_at: datetime = Field(
+        description="When the seller profile was created (UTC)"
+    )
+    updated_at: datetime = Field(
+        description="When the seller profile was last updated (UTC)"
+    )
 
 
 class SellerDocumentResponse(BaseModel):
@@ -72,13 +74,11 @@ class SellerDocumentResponse(BaseModel):
 
 class RejectSellerRequest(BaseModel):
     reason: str = Field(
-        min_length=1,
-        description="Admin reason for rejecting this seller application"
+        min_length=1, description="Admin reason for rejecting this seller application"
     )
 
 
 class SuspendSellerRequest(BaseModel):
     reason: str | None = Field(
-        default=None,
-        description="Optional reason for suspending this seller"
+        default=None, description="Optional reason for suspending this seller"
     )

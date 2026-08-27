@@ -41,19 +41,35 @@ status before mutating. Wrong-state transitions raise specific exceptions.
 
 ## Who can create products
 
-**v1 (initial):** Only admins create products. The catalog is
-admin-curated.
+Both admins and active sellers — gated by
+`require_admin_or_active_seller` (`app/modules/products/dependencies.py`),
+which resolves the caller to either "admin" (unrestricted) or "this
+specific active seller." A product created by a seller is tagged via
+`Product.created_by_seller_id`; admin-created products leave it `null`.
 
-**v2 (planned):** Sellers can request new products. The flow:
+**Ownership only matters before approval.** While a product is
+`draft`/`pending_review`/`rejected`, only its requesting seller (or
+admin) can edit it, submit it, or add variants/images to it — checked in
+`ProductService._check_owner` / `_check_product_write_access`. The
+intended flow:
 
 ```
-Seller searches catalog → not found → "Request a new product"
-    → product created with status = pending_review
-    → admin reviews → approve (active) or reject
+Seller searches catalog (GET /products?search=...) → not found
+    → POST /products (tagged with created_by_seller_id)
+    → seller edits while draft/rejected, then POST /{id}/submit
+    → admin reviews → approve (active) or reject (reason, editable again)
 ```
 
-This prevents sellers from creating duplicate or incorrect catalog
-entries. Admin review is the quality gate.
+Admin can always create directly too — `created_by_seller_id` stays
+`null`, immediately fully theirs, same as before this flow existed.
+
+**Ownership stops gating once a product is `active`.** At that point
+it's shared catalog — any active seller (not just the original
+requester) can add new variants or images to it, which is what makes "I
+also have this in Blue" possible for a variant nobody's defined yet. See
+`GET /products/mine` for a seller to see their own requests (any
+status, including ones nobody else can see) and `attributes-and-variants.md`
+for how variants themselves work.
 
 ## Product vs. Listing status
 

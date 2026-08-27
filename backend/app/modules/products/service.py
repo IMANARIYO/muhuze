@@ -30,6 +30,7 @@ from app.modules.products.exceptions import (
     ProductNotFoundError,
     ProductNotPendingReviewError,
     ProductNotSubmittableError,
+    ProductOwnershipError,
     ProductVariantNotFoundError,
     SellerListingImageNotFoundError,
     SellerListingNotFoundError,
@@ -63,6 +64,24 @@ from app.shared.utils.slugify import slugify
 
 PRODUCT_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_PRODUCT_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _check_product_write_access(
+    product: Product, requester_seller_id: uuid.UUID | None
+) -> None:
+    """Shared by ProductVariantService and ProductImageService — both
+    extend the same product, under the same rule. `requester_seller_id
+    =None` means admin, always allowed. Otherwise: once the product is
+    `active` it's shared catalog, so any active seller may add to it
+    (that's what makes "many sellers, same product" real for variants
+    nobody's requested yet); before that, only the seller who requested
+    it may touch it — it isn't part of the real catalog yet."""
+    if requester_seller_id is None:
+        return
+    if product.status == ProductStatus.ACTIVE:
+        return
+    if product.created_by_seller_id != requester_seller_id:
+        raise ProductOwnershipError()
 
 
 class BrandService:
@@ -158,12 +177,17 @@ class AttributeService:
 
 
 class ProductService:
-    """Business rules for the product (SPU) lifecycle. v1: only admins
-    create/edit/review products — the catalog is admin-curated. The full
-    draft -> pending_review -> active/rejected -> archived state machine
-    is built now anyway (not just draft/active) so that a future
-    seller-requests-a-product flow only needs a new entry point, not a
-    redesign — see products/docs/product-lifecycle.md."""
+    """Business rules for the product (SPU) lifecycle. The catalog is
+    still admin-approved end to end, but creation is no longer
+    admin-only: an active seller can request a new product (tagged via
+    created_by_seller_id) the same way admin can create one directly
+    (created_by_seller_id left null). While a product is
+    draft/pending_review/rejected, only its requesting seller (or admin)
+    may touch it — see `_check_owner`. Once active, ownership stops
+    gating anything: any active seller can extend the shared catalog
+    with new variants/images — see ProductVariantService/
+    ProductImageService. Admin remains the only approve/reject/archive
+    gate. See products/docs/product-lifecycle.md."""
 
     def __init__(
         self,
@@ -187,10 +211,14 @@ class ProductService:
         category_id: uuid.UUID | None,
         brand_id: uuid.UUID | None,
         status: str | None,
+        search: str | None = None,
     ) -> list[Product]:
         return await self.products.list_all(
-            category_id=category_id, brand_id=brand_id, status=status
+            category_id=category_id, brand_id=brand_id, status=status, search=search
         )
+
+    async def list_mine(self, seller_id: uuid.UUID) -> list[Product]:
+        return await self.products.list_by_seller(seller_id)
 
     async def create(
         self,
@@ -199,6 +227,7 @@ class ProductService:
         brand_id: uuid.UUID | None,
         name: str,
         description: str | None,
+        created_by_seller_id: uuid.UUID | None = None,
     ) -> Product:
         await self._validate_references(category_id, brand_id)
         slug = await self._unique_slug(name)
@@ -208,6 +237,7 @@ class ProductService:
             name=name,
             slug=slug,
             description=description,
+            created_by_seller_id=created_by_seller_id,
         )
 
     async def update(
@@ -218,8 +248,10 @@ class ProductService:
         brand_id: uuid.UUID | None,
         name: str,
         description: str | None,
+        requester_seller_id: uuid.UUID | None = None,
     ) -> Product:
         product = await self.get_by_id(product_id)
+        self._check_owner(product, requester_seller_id)
         if product.status not in (ProductStatus.DRAFT, ProductStatus.REJECTED):
             raise ProductNotEditableError()
         await self._validate_references(category_id, brand_id)
@@ -231,8 +263,11 @@ class ProductService:
             description=description,
         )
 
-    async def submit_for_review(self, product_id: uuid.UUID) -> Product:
+    async def submit_for_review(
+        self, product_id: uuid.UUID, *, requester_seller_id: uuid.UUID | None = None
+    ) -> Product:
         product = await self.get_by_id(product_id)
+        self._check_owner(product, requester_seller_id)
         if product.status not in (ProductStatus.DRAFT, ProductStatus.REJECTED):
             raise ProductNotSubmittableError()
         return await self.products.update_status(
@@ -258,6 +293,20 @@ class ProductService:
         if product.status != ProductStatus.ACTIVE:
             raise ProductNotArchivableError()
         return await self.products.update_status(product, status=ProductStatus.ARCHIVED)
+
+    def _check_owner(
+        self, product: Product, requester_seller_id: uuid.UUID | None
+    ) -> None:
+        """`requester_seller_id=None` means the caller is admin — no
+        check. Otherwise the caller must be the seller who requested this
+        product. Only meaningful while draft/pending_review/rejected —
+        callers don't call this at all for the active-product case (see
+        class docstring)."""
+        if (
+            requester_seller_id is not None
+            and product.created_by_seller_id != requester_seller_id
+        ):
+            raise ProductOwnershipError()
 
     async def _validate_references(
         self, category_id: uuid.UUID, brand_id: uuid.UUID | None
@@ -323,10 +372,12 @@ class ProductVariantService:
         *,
         sku_code: str | None,
         attribute_values: list[tuple[uuid.UUID, str]],
+        requester_seller_id: uuid.UUID | None = None,
     ) -> tuple[ProductVariant, list[VariantAttributeValue]]:
         product = await self.products.get_by_id(product_id)
         if product is None:
             raise ProductNotFoundError()
+        _check_product_write_access(product, requester_seller_id)
 
         seen_attribute_ids: set[uuid.UUID] = set()
         for attribute_id, _value in attribute_values:
@@ -349,9 +400,18 @@ class ProductVariantService:
         return variant, values
 
     async def update(
-        self, variant_id: uuid.UUID, *, sku_code: str | None, status: str
+        self,
+        variant_id: uuid.UUID,
+        *,
+        sku_code: str | None,
+        status: str,
+        requester_seller_id: uuid.UUID | None = None,
     ) -> ProductVariant:
         variant = await self.get_by_id(variant_id)
+        product = await self.products.get_by_id(variant.product_id)
+        if product is None:
+            raise ProductNotFoundError()
+        _check_product_write_access(product, requester_seller_id)
         return await self.variants.update(variant, sku_code=sku_code, status=status)
 
     async def list_attribute_values(
@@ -400,11 +460,17 @@ class ProductImageService:
         return await self.images.list_by_product(product_id)
 
     async def upload(
-        self, product_id: uuid.UUID, *, file: UploadFile, is_primary: bool
+        self,
+        product_id: uuid.UUID,
+        *,
+        file: UploadFile,
+        is_primary: bool,
+        requester_seller_id: uuid.UUID | None = None,
     ) -> ProductImage:
         product = await self.products.get_by_id(product_id)
         if product is None:
             raise ProductNotFoundError()
+        _check_product_write_access(product, requester_seller_id)
 
         uploaded = await storage.upload_file(
             file,
@@ -425,7 +491,17 @@ class ProductImageService:
             is_primary=is_primary or not existing,
         )
 
-    async def delete(self, product_id: uuid.UUID, image_id: uuid.UUID) -> None:
+    async def delete(
+        self,
+        product_id: uuid.UUID,
+        image_id: uuid.UUID,
+        *,
+        requester_seller_id: uuid.UUID | None = None,
+    ) -> None:
+        product = await self.products.get_by_id(product_id)
+        if product is None:
+            raise ProductNotFoundError()
+        _check_product_write_access(product, requester_seller_id)
         image = await self.images.get_by_id(image_id)
         if image is None or image.product_id != product_id:
             raise ProductImageNotFoundError()
