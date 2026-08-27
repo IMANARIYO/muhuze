@@ -1,0 +1,16 @@
+{
+  "name": "muhuze",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names frontend,backend --prefix-colors green,blue \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "uv run --directory backend uvicorn app.main:app --reload",
+    "build": "npm --prefix frontend run build",
+    "lint": "npm --prefix frontend run lint",
+    "test:backend": "uv run --directory backend pytest -q"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
