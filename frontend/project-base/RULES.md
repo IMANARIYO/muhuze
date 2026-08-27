@@ -17,6 +17,19 @@ Muhuze is an online marketplace platform with three user roles:
 - No heavy client-side packages; prefer server components where possible
 - Client components only when interactivity is required (`"use client"`)
 
+## Frontend Rules
+
+- This is the Next.js frontend. Backend code is Python/FastAPI and must not be changed for frontend work.
+- Use Axios through `app/lib/api/client.ts` for all API calls.
+- Add an API-only service under `app/services/` for each feature area before using that API in a component.
+- Keep auth state in `app/context/auth-context.tsx` and access it with `useAuth()`.
+- Dashboard routes are protected by `middleware.ts`; backend JWT validation and permissions remain authoritative.
+- The backend role `buyer` maps to the frontend role `client`. Other roles are `seller` and `admin`.
+- Keep pages server components by default; add `"use client"` only for forms, context, or browser APIs.
+- Use strict TypeScript types. Do not use `any`.
+- Do not remove existing routes or demo data without a specific requirement.
+- Never commit `.env` files, secrets, tokens, or `node_modules`.
+
 ## File Structure
 ```
 app/

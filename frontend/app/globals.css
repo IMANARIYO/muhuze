@@ -1,8 +1,8 @@
 @import "tailwindcss";
 :root { --ink: #17211f; --muted: #74807c; --line: #e5e9e5; --paper: #f6f8f5; --card: #fff; --teal: #31a59a; --coral: #ee765e; --sky: #6d9bdb; --yellow: #edc35a; }
-@theme inline { --color-background: var(--paper); --color-foreground: var(--ink); --font-sans: var(--font-geist-sans); --font-mono: var(--font-geist-mono); }
+@theme inline { --color-background: var(--paper); --color-foreground: var(--ink); --font-sans: var(--font-nunito-sans); --font-mono: var(--font-nunito-sans); }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-nunito-sans), "Nunito Sans Fallback", "Nunito Sans", sans-serif; font-weight: 500; }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 .app-frame { display: flex; min-height: 100vh; background: var(--paper); }

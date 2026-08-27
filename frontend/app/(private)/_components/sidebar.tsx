@@ -7,6 +7,7 @@ import {
   ClipboardList,
   CreditCard,
   LayoutDashboard,
+  LogOut,
   Package,
   Settings,
   ShoppingBag,
@@ -21,6 +22,8 @@ import { cn } from "@/app/lib/utils";
 import { navItems, bottomNavItems } from "@/app/lib/data";
 import type { UserRole } from "@/app/lib/types";
 import { RoleSwitcher } from "./role-switcher";
+import { useAuth } from "@/app/context/auth-context";
+import { useRouter } from "next/navigation";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number }>> = {
   LayoutDashboard,
@@ -39,21 +42,30 @@ const iconMap: Record<string, React.ComponentType<{ size?: number }>> = {
 interface SidebarProps {
   role: UserRole;
   onRoleChange: (role: UserRole) => void;
+  availableRoles: string[];
   mobileOpen: boolean;
   onMobileClose: () => void;
 }
 
-export function Sidebar({ role, onRoleChange, mobileOpen, onMobileClose }: SidebarProps) {
+export function Sidebar({ role, onRoleChange, availableRoles, mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuth();
 
   const filteredNav = navItems.filter((item) => item.roles.includes(role));
   const filteredBottom = bottomNavItems.filter((item) => item.roles.includes(role));
 
+  async function handleLogout() {
+    await logout();
+    onMobileClose();
+    router.replace("/login");
+  }
+
   return (
     <aside
       className={cn(
-        "flex w-60 flex-col border-r border-[var(--line)] bg-[#fbfcfa] transition-transform duration-200",
-        "fixed inset-y-0 left-0 z-30 lg:static lg:translate-x-0",
+        "flex h-screen w-60 shrink-0 flex-col overflow-hidden border-r border-[var(--line)] bg-[#fbfcfa] transition-transform duration-200",
+        "fixed inset-y-0 left-0 z-30 lg:sticky lg:top-0 lg:translate-x-0",
         mobileOpen ? "translate-x-0" : "-translate-x-full"
       )}
     >
@@ -78,7 +90,7 @@ export function Sidebar({ role, onRoleChange, mobileOpen, onMobileClose }: Sideb
 
       {/* Role Switcher */}
       <div className="px-3 pb-4">
-        <RoleSwitcher role={role} onRoleChange={onRoleChange} />
+        <RoleSwitcher role={role} onRoleChange={onRoleChange} availableRoles={availableRoles} />
       </div>
 
       {/* Main Nav */}
@@ -154,9 +166,14 @@ export function Sidebar({ role, onRoleChange, mobileOpen, onMobileClose }: Sideb
           <CircleHelp size={15} />
         </div>
         <div className="flex-1">
-          <p className="text-[11px] font-bold text-[var(--ink)]">Need help?</p>
-          <p className="text-[10px] text-[var(--muted)]">Visit our help center</p>
+          <p className="truncate text-[11px] font-bold text-[var(--ink)]">{user?.email ?? "Need help?"}</p>
+          <p className="text-[10px] text-[var(--muted)]">{user ? "Account connected" : "Visit our help center"}</p>
         </div>
+        {user && (
+          <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Log out" title="Log out">
+            <LogOut size={15} />
+          </Button>
+        )}
       </div>
     </aside>
   );

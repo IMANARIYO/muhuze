@@ -2,7 +2,7 @@ import Link from "next/link";
 
 const footerLinks = {
   Marketplace: [
-    { label: "Browse Products", href: "/dashboard/products" },
+    { label: "Browse Products", href: "/products" },
     { label: "Sell on Muhuze", href: "/dashboard/products/new" },
     { label: "How It Works", href: "#how-it-works" },
   ],

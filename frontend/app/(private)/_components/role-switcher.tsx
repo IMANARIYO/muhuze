@@ -13,12 +13,16 @@ const roles: { value: UserRole; label: string; color: string }[] = [
 interface RoleSwitcherProps {
   role: UserRole;
   onRoleChange: (role: UserRole) => void;
+  availableRoles: string[];
 }
 
-export function RoleSwitcher({ role, onRoleChange }: RoleSwitcherProps) {
+export function RoleSwitcher({ role, onRoleChange, availableRoles }: RoleSwitcherProps) {
+  const allowedRoles = roles.filter((candidate) => availableRoles.includes(candidate.value === "client" ? "buyer" : candidate.value));
+
   const cycleRole = () => {
-    const idx = roles.findIndex((r) => r.value === role);
-    onRoleChange(roles[(idx + 1) % roles.length].value);
+    if (allowedRoles.length < 2) return;
+    const idx = allowedRoles.findIndex((r) => r.value === role);
+    onRoleChange(allowedRoles[(idx + 1) % allowedRoles.length].value);
   };
 
   const current = roles.find((r) => r.value === role)!;
@@ -27,7 +31,7 @@ export function RoleSwitcher({ role, onRoleChange }: RoleSwitcherProps) {
     <button
       onClick={cycleRole}
       className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-left transition-colors hover:bg-[#f4f8f4]"
-      aria-label={`Current role: ${current.label}. Click to switch.`}
+      aria-label={allowedRoles.length > 1 ? `Current role: ${current.label}. Click to switch.` : `Current role: ${current.label}.`}
     >
       <Avatar initials="AM" size="sm" color={current.color} />
       <div className="flex flex-1 flex-col">

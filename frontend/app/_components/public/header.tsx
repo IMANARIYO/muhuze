@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 import { Button } from "@/app/_components/ui/button";
+import { useAuth } from "@/app/context/auth-context";
 
 const navLinks = [
   { label: "How It Works", href: "#how-it-works" },
@@ -13,6 +14,12 @@ const navLinks = [
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isAuthenticated, logout } = useAuth();
+
+  async function handleLogout() {
+    await logout();
+    setMobileOpen(false);
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-white/80 backdrop-blur-md">
@@ -39,12 +46,20 @@ export function Header() {
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="sm">Log in</Button>
-          </Link>
-          <Link href="/dashboard">
-            <Button size="sm">Get Started</Button>
-          </Link>
+          {isAuthenticated ? (
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut size={14} /> Log out
+            </Button>
+          ) : (
+            <>
+              <Link href="/login">
+                <Button variant="ghost" size="sm">Log in</Button>
+              </Link>
+              <Link href="/register">
+                <Button size="sm">Get Started</Button>
+              </Link>
+            </>
+          )}
         </div>
 
         <Button
@@ -72,12 +87,20 @@ export function Header() {
               </a>
             ))}
             <hr className="border-[var(--line)]" />
-            <Link href="/dashboard">
-              <Button variant="ghost" size="sm" className="w-full justify-start">Log in</Button>
-            </Link>
-            <Link href="/dashboard">
-              <Button size="sm" className="w-full">Get Started</Button>
-            </Link>
+            {isAuthenticated ? (
+              <Button variant="ghost" size="sm" className="w-full justify-start" onClick={handleLogout}>
+                <LogOut size={15} /> Log out
+              </Button>
+            ) : (
+              <>
+                <Link href="/login">
+                  <Button variant="ghost" size="sm" className="w-full justify-start">Log in</Button>
+                </Link>
+                <Link href="/register">
+                  <Button size="sm" className="w-full">Get Started</Button>
+                </Link>
+              </>
+            )}
           </nav>
         </div>
       )}
