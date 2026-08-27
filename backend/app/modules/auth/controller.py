@@ -18,11 +18,15 @@ from app.modules.auth.schemas import (
     EmailVerificationConfirmRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    PermissionCreateRequest,
     PermissionResponse,
+    PermissionUpdateRequest,
     RefreshTokenRequest,
     RegisterRequest,
     ResetPasswordRequest,
+    RoleCreateRequest,
     RoleResponse,
+    RoleUpdateRequest,
     TokenResponse,
 )
 from app.modules.auth.service import (
@@ -157,3 +161,47 @@ class AuthController:
 
     async def list_direct_permissions(self, account_id: uuid.UUID) -> list[str]:
         return await self.authorization.list_direct_permissions(account_id)
+
+    async def create_role(self, payload: RoleCreateRequest) -> RoleResponse:
+        role = await self.authorization.create_role(
+            name=payload.name, description=payload.description
+        )
+        return RoleResponse.model_validate(role)
+
+    async def update_role(
+        self, role_name: str, payload: RoleUpdateRequest
+    ) -> RoleResponse:
+        role = await self.authorization.update_role(
+            role_name, name=payload.name, description=payload.description
+        )
+        return RoleResponse.model_validate(role)
+
+    async def delete_role(self, role_name: str) -> None:
+        await self.authorization.delete_role(role_name)
+
+    async def create_permission(
+        self, payload: PermissionCreateRequest
+    ) -> PermissionResponse:
+        permission = await self.authorization.create_permission(
+            code=payload.code,
+            name=payload.name,
+            description=payload.description,
+            resource=payload.resource,
+            action=payload.action,
+        )
+        return PermissionResponse.model_validate(permission)
+
+    async def update_permission(
+        self, permission_code: str, payload: PermissionUpdateRequest
+    ) -> PermissionResponse:
+        permission = await self.authorization.update_permission(
+            permission_code,
+            name=payload.name,
+            description=payload.description,
+            resource=payload.resource,
+            action=payload.action,
+        )
+        return PermissionResponse.model_validate(permission)
+
+    async def delete_permission(self, permission_code: str) -> None:
+        await self.authorization.delete_permission(permission_code)

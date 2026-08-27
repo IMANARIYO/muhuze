@@ -44,3 +44,11 @@ class RoleNotFoundError(NotFoundError):
 
 class PermissionNotFoundError(NotFoundError):
     message = "Permission not found"
+
+
+class DuplicateRoleNameError(ConflictError):
+    message = "A role with this name already exists"
+
+
+class DuplicatePermissionCodeError(ConflictError):
+    message = "A permission with this code already exists"

@@ -15,6 +15,8 @@ from app.core.security import (
 )
 from app.modules.auth.exceptions import (
     AccountNotFoundError,
+    DuplicatePermissionCodeError,
+    DuplicateRoleNameError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
     InvalidPasswordResetTokenError,
@@ -340,3 +342,67 @@ class AuthorizationService:
         if await self.accounts.get_by_id(account_id) is None:
             raise AccountNotFoundError()
         return await self.authorization.get_direct_permission_codes(account_id)
+
+    async def create_role(
+        self, *, name: str, description: str | None
+    ) -> Role:
+        if await self.authorization.get_role_by_name(name) is not None:
+            raise DuplicateRoleNameError()
+        return await self.authorization.create_role(name=name, description=description)
+
+    async def update_role(
+        self, role_name: str, *, name: str, description: str | None
+    ) -> Role:
+        role = await self.authorization.get_role_by_name(role_name)
+        if role is None:
+            raise RoleNotFoundError()
+        if name != role_name:
+            existing = await self.authorization.get_role_by_name(name)
+            if existing is not None:
+                raise DuplicateRoleNameError()
+        return await self.authorization.update_role(role, name=name, description=description)
+
+    async def delete_role(self, role_name: str) -> None:
+        role = await self.authorization.get_role_by_name(role_name)
+        if role is None:
+            raise RoleNotFoundError()
+        await self.authorization.delete_role(role)
+
+    async def create_permission(
+        self,
+        *,
+        code: str,
+        name: str,
+        description: str | None,
+        resource: str,
+        action: str,
+    ) -> Permission:
+        if await self.authorization.get_permission_by_code(code) is not None:
+            raise DuplicatePermissionCodeError()
+        return await self.authorization.create_permission(
+            code=code, name=name, description=description,
+            resource=resource, action=action,
+        )
+
+    async def update_permission(
+        self,
+        permission_code: str,
+        *,
+        name: str,
+        description: str | None,
+        resource: str,
+        action: str,
+    ) -> Permission:
+        permission = await self.authorization.get_permission_by_code(permission_code)
+        if permission is None:
+            raise PermissionNotFoundError()
+        return await self.authorization.update_permission(
+            permission, name=name, description=description,
+            resource=resource, action=action,
+        )
+
+    async def delete_permission(self, permission_code: str) -> None:
+        permission = await self.authorization.get_permission_by_code(permission_code)
+        if permission is None:
+            raise PermissionNotFoundError()
+        await self.authorization.delete_permission(permission)

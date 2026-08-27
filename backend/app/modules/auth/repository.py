@@ -336,3 +336,67 @@ class AuthorizationRepository:
         if role_permission is not None:
             await self.db.delete(role_permission)
             await self.db.flush()
+
+    async def create_role(
+        self, *, name: str, description: str | None
+    ) -> Role:
+        role = Role(name=name, description=description)
+        self.db.add(role)
+        await self.db.flush()
+        await self.db.refresh(role)
+        return role
+
+    async def update_role(
+        self, role: Role, *, name: str, description: str | None
+    ) -> Role:
+        role.name = name
+        role.description = description
+        await self.db.flush()
+        await self.db.refresh(role)
+        return role
+
+    async def delete_role(self, role: Role) -> None:
+        await self.db.delete(role)
+        await self.db.flush()
+
+    async def create_permission(
+        self,
+        *,
+        code: str,
+        name: str,
+        description: str | None,
+        resource: str,
+        action: str,
+    ) -> Permission:
+        permission = Permission(
+            code=code,
+            name=name,
+            description=description,
+            resource=resource,
+            action=action,
+        )
+        self.db.add(permission)
+        await self.db.flush()
+        await self.db.refresh(permission)
+        return permission
+
+    async def update_permission(
+        self,
+        permission: Permission,
+        *,
+        name: str,
+        description: str | None,
+        resource: str,
+        action: str,
+    ) -> Permission:
+        permission.name = name
+        permission.description = description
+        permission.resource = resource
+        permission.action = action
+        await self.db.flush()
+        await self.db.refresh(permission)
+        return permission
+
+    async def delete_permission(self, permission: Permission) -> None:
+        await self.db.delete(permission)
+        await self.db.flush()

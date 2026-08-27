@@ -135,15 +135,20 @@ class AccountRole(UUIDPKMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False, index=True
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("roles.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
 
 class RolePermission(UUIDPKMixin, TimestampMixin, Base):
-    """Many-to-many: which permissions a role grants. permission_id cascades
-    on delete: when the permission-sync script removes a stale permission
-    (no longer defined in code), its role assignments are cleaned up by the
-    database automatically rather than blocking the delete."""
+    """Many-to-many: which permissions a role grants. Both FKs cascade on
+    delete: deleting a Role drops its RolePermission rows (matching
+    AccountRole.role_id's cascade — deleting a role should cleanly clear
+    its grants, not be blocked by them), and the permission-sync script
+    removing a stale permission cleans up its role assignments the same
+    way."""
 
     __tablename__ = "role_permissions"
     __table_args__ = (
@@ -151,7 +156,10 @@ class RolePermission(UUIDPKMixin, TimestampMixin, Base):
     )
 
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("roles.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     permission_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
