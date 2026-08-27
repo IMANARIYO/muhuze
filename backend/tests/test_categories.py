@@ -83,6 +83,24 @@ async def test_slug_collision_gets_numeric_suffix(
 ) -> None:
     tokens = await make_admin(client, db)
     headers = auth_headers(tokens)
+
+    first = await client.post(
+        "/api/v1/categories", json={"name": "Cafe Menu"}, headers=headers
+    )
+    second = await client.post(
+        "/api/v1/categories", json={"name": "cafe menu"}, headers=headers
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["data"]["slug"] != second.json()["data"]["slug"]
+    assert second.json()["data"]["slug"].startswith(first.json()["data"]["slug"])
+
+
+async def test_duplicate_name_same_parent_is_409(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    tokens = await make_admin(client, db)
+    headers = auth_headers(tokens)
     name = "Duplicate Name"
 
     first = await client.post(
@@ -92,9 +110,7 @@ async def test_slug_collision_gets_numeric_suffix(
         "/api/v1/categories", json={"name": name}, headers=headers
     )
     assert first.status_code == 201
-    assert second.status_code == 201
-    assert first.json()["data"]["slug"] != second.json()["data"]["slug"]
-    assert second.json()["data"]["slug"].startswith(first.json()["data"]["slug"])
+    assert second.status_code == 409
 
 
 async def test_create_child_category(client: AsyncClient, db: AsyncSession) -> None:

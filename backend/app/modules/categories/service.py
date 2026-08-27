@@ -47,8 +47,6 @@ class CategoryService:
             parent = await self.categories.get_by_id(parent_id)
             if parent is None:
                 raise CategoryParentNotFoundError()
-        if parent_id is not None:
-            await self._ensure_not_self_parent(parent_id, parent_id)
         if await self.categories.name_exists_under_parent(
             parent_id=parent_id, name=name, exclude_id=None
         ):

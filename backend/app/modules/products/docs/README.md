@@ -75,6 +75,7 @@ repository.py    → data access only (SQLAlchemy queries), no business rules
 | [database.md](database.md) | Full table-by-table schema reference |
 | [attributes-and-variants.md](attributes-and-variants.md) | How the attribute system drives variant generation |
 | [product-lifecycle.md](product-lifecycle.md) | Product status transitions and rules |
+| [creation-scenarios.md](creation-scenarios.md) | Admin-creates vs. seller-requests a product, side by side, with real request/response examples |
 | [seller-listing-flow.md](seller-listing-flow.md) | How a seller creates and manages listings |
 | [roadmap.md](roadmap.md) | Implementation phases checklist |
 

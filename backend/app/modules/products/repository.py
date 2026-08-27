@@ -132,6 +132,7 @@ class ProductRepository:
         category_id: uuid.UUID | None,
         brand_id: uuid.UUID | None,
         status: str | None,
+        search: str | None = None,
     ) -> list[Product]:
         query = select(Product).order_by(Product.name)
         if category_id is not None:
@@ -140,7 +141,17 @@ class ProductRepository:
             query = query.where(Product.brand_id == brand_id)
         if status is not None:
             query = query.where(Product.status == status)
+        if search is not None:
+            query = query.where(Product.name.ilike(f"%{search}%"))
         result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def list_by_seller(self, seller_id: uuid.UUID) -> list[Product]:
+        result = await self.db.execute(
+            select(Product)
+            .where(Product.created_by_seller_id == seller_id)
+            .order_by(Product.created_at.desc())
+        )
         return list(result.scalars().all())
 
     async def create(
@@ -151,6 +162,7 @@ class ProductRepository:
         name: str,
         slug: str,
         description: str | None,
+        created_by_seller_id: uuid.UUID | None = None,
     ) -> Product:
         product = Product(
             category_id=category_id,
@@ -158,6 +170,7 @@ class ProductRepository:
             name=name,
             slug=slug,
             description=description,
+            created_by_seller_id=created_by_seller_id,
         )
         self.db.add(product)
         await self.db.flush()

@@ -11,10 +11,12 @@ from app.modules.products.controller import (
     ProductController,
 )
 from app.modules.products.dependencies import (
+    ProductActor,
     get_attribute_controller,
     get_brand_controller,
     get_listing_controller,
     get_product_controller,
+    require_admin_or_active_seller,
 )
 from app.modules.products.schemas import (
     AttributeCreateRequest,
@@ -39,6 +41,8 @@ from app.modules.products.schemas import (
     SellerListingUpdateRequest,
     SellerListingUpdateStockRequest,
 )
+from app.modules.sellers.dependencies import get_current_seller
+from app.modules.sellers.models import Seller
 from app.shared.responses.helpers import success_response
 from app.shared.responses.schemas import APIResponse
 
@@ -155,14 +159,32 @@ async def list_products(
     category_id: uuid.UUID | None = Query(default=None),
     brand_id: uuid.UUID | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
+    search: str | None = Query(
+        default=None, description="Case-insensitive substring match on product name"
+    ),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[list[ProductResponse]]:
-    """List products, optionally filtered by category, brand, and/or
-    status (`?status=active`)."""
+    """List products, optionally filtered by category, brand, status
+    (`?status=active`), and/or name search — use `search` to check
+    whether a product already exists before requesting a new one."""
     products = await controller.list_products(
-        category_id=category_id, brand_id=brand_id, status=status_filter
+        category_id=category_id, brand_id=brand_id, status=status_filter, search=search
     )
     return success_response(data=products, message="Products retrieved successfully")
+
+
+@products_router.get("/mine")
+async def list_my_products(
+    seller: Seller = Depends(get_current_seller),
+    controller: ProductController = Depends(get_product_controller),
+) -> APIResponse[list[ProductResponse]]:
+    """List the products the caller (as an active seller) has requested,
+    in any status — including drafts and rejections nobody else can
+    see."""
+    products = await controller.list_my_products(seller.id)
+    return success_response(
+        data=products, message="Your product requests retrieved successfully"
+    )
 
 
 @products_router.get("/{product_id}")
@@ -179,14 +201,18 @@ async def get_product(
 @products_router.post("", status_code=status.HTTP_201_CREATED)
 async def create_product(
     payload: ProductCreateRequest,
-    admin: Account = Depends(require_role("admin")),
+    actor: ProductActor = Depends(require_admin_or_active_seller),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[ProductResponse]:
     """Create a product (SPU) in `draft` status. `category_id` must
-    exist; `brand_id` is optional but must exist if given. Admin only in
-    v1 — the catalog is admin-curated. See
+    exist; `brand_id` is optional but must exist if given. Callable by an
+    admin (curates the catalog directly) or any active seller (requests
+    a new product — tagged as theirs, and only they or an admin can edit
+    or submit it until it's approved). See
     products/docs/product-lifecycle.md."""
-    product = await controller.create_product(payload)
+    product = await controller.create_product(
+        payload, created_by_seller_id=actor.seller_id
+    )
     return success_response(data=product, message="Product created successfully")
 
 
@@ -194,26 +220,31 @@ async def create_product(
 async def update_product(
     product_id: uuid.UUID,
     payload: ProductUpdateRequest,
-    admin: Account = Depends(require_role("admin")),
+    actor: ProductActor = Depends(require_admin_or_active_seller),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[ProductResponse]:
     """Update a product's category, brand, name, or description. Only
-    allowed while `draft` or `rejected` — 409 otherwise. Admin only."""
-    product = await controller.update_product(product_id, payload)
+    allowed while `draft` or `rejected` — 409 otherwise. Admin can edit
+    any product; a seller can only edit a product they themselves
+    requested (403 otherwise)."""
+    product = await controller.update_product(
+        product_id, payload, requester_seller_id=actor.seller_id
+    )
     return success_response(data=product, message="Product updated successfully")
 
 
 @products_router.post("/{product_id}/submit")
 async def submit_for_review(
     product_id: uuid.UUID,
-    admin: Account = Depends(require_role("admin")),
+    actor: ProductActor = Depends(require_admin_or_active_seller),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[ProductResponse]:
-    """Move a product from `draft`/`rejected` to `pending_review`. Admin
-    only in v1 — kept as a real transition (not skipped) so a future
-    seller-requests-a-product flow only needs a new entry point, not a
-    redesign."""
-    product = await controller.submit_for_review(product_id)
+    """Move a product from `draft`/`rejected` to `pending_review`.
+    Callable by admin on any product, or by the requesting seller on
+    their own (403 otherwise)."""
+    product = await controller.submit_for_review(
+        product_id, requester_seller_id=actor.seller_id
+    )
     return success_response(data=product, message="Product submitted for review")
 
 
@@ -272,14 +303,19 @@ async def list_variants(
 async def create_variant(
     product_id: uuid.UUID,
     payload: ProductVariantCreateRequest,
-    admin: Account = Depends(require_role("admin")),
+    actor: ProductActor = Depends(require_admin_or_active_seller),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[ProductVariantResponse]:
     """Create a variant (SKU) with its attribute values (e.g. Color=Black,
     Storage=256GB). Rejects a combination of attribute values already
     used by another variant of the same product (422), and rejects the
-    same attribute supplied twice in one request (422). Admin only."""
-    variant = await controller.create_variant(product_id, payload)
+    same attribute supplied twice in one request (422). Admin, or any
+    active seller once the product is `active` (shared catalog — that's
+    what lets a seller add "also comes in Blue" nobody's requested yet);
+    before that, only the requesting seller or admin (403 otherwise)."""
+    variant = await controller.create_variant(
+        product_id, payload, requester_seller_id=actor.seller_id
+    )
     return success_response(data=variant, message="Variant created successfully")
 
 
@@ -288,13 +324,15 @@ async def update_variant(
     product_id: uuid.UUID,
     variant_id: uuid.UUID,
     payload: ProductVariantUpdateRequest,
-    admin: Account = Depends(require_role("admin")),
+    actor: ProductActor = Depends(require_admin_or_active_seller),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[ProductVariantResponse]:
     """Update a variant's sku_code or status. Attribute values are set
-    only at creation — to change them, create a new variant. Admin
-    only."""
-    variant = await controller.update_variant(product_id, variant_id, payload)
+    only at creation — to change them, create a new variant. Same
+    admin/active-seller access rule as creating a variant."""
+    variant = await controller.update_variant(
+        product_id, variant_id, payload, requester_seller_id=actor.seller_id
+    )
     return success_response(data=variant, message="Variant updated successfully")
 
 
@@ -316,14 +354,20 @@ async def upload_image(
     product_id: uuid.UUID,
     file: UploadFile = File(...),
     is_primary: bool = Form(default=False),
-    admin: Account = Depends(require_role("admin")),
+    actor: ProductActor = Depends(require_admin_or_active_seller),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[ProductImageResponse]:
     """Upload a canonical product image to Cloudinary. Stored publicly
     (unlike seller documents) since buyers browsing the catalog need a
     fast, CDN-cacheable image, not a signed URL. The first image uploaded
-    for a product is automatically primary. Admin only."""
-    image = await controller.upload_image(product_id, file=file, is_primary=is_primary)
+    for a product is automatically primary. Same admin/active-seller
+    access rule as creating a variant."""
+    image = await controller.upload_image(
+        product_id,
+        file=file,
+        is_primary=is_primary,
+        requester_seller_id=actor.seller_id,
+    )
     return success_response(data=image, message="Image uploaded successfully")
 
 
@@ -331,12 +375,14 @@ async def upload_image(
 async def delete_image(
     product_id: uuid.UUID,
     image_id: uuid.UUID,
-    admin: Account = Depends(require_role("admin")),
+    actor: ProductActor = Depends(require_admin_or_active_seller),
     controller: ProductController = Depends(get_product_controller),
 ) -> APIResponse[None]:
-    """Delete a product image, including its Cloudinary asset. Admin
-    only."""
-    await controller.delete_image(product_id, image_id)
+    """Delete a product image, including its Cloudinary asset. Same
+    admin/active-seller access rule as creating a variant."""
+    await controller.delete_image(
+        product_id, image_id, requester_seller_id=actor.seller_id
+    )
     return success_response(message="Image deleted successfully")
 
 

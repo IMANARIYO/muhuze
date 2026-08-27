@@ -124,6 +124,7 @@ Table: `products` · Model: `app/modules/products/models.py::Product`
 | id | UUID | No | Primary key |
 | category_id | UUID | No | FK → `categories.id`. Indexed. A product belongs to exactly one category. |
 | brand_id | UUID | Yes | FK → `brands.id`. Indexed. Nullable because not all products have a brand. |
+| created_by_seller_id | UUID | Yes | FK → `sellers.id`. Indexed. Null means admin-curated directly; otherwise the seller who requested it — see [product-lifecycle.md](product-lifecycle.md#who-can-create-products). |
 | name | VARCHAR(255) | No | Product name (e.g., "Samsung Galaxy A15"). |
 | slug | VARCHAR(280) | No | **Unique, indexed.** URL-safe identifier, auto-generated from name. |
 | description | TEXT | Yes | Product description. May contain markdown. |

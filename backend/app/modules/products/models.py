@@ -34,6 +34,7 @@ class AttributeInputType(StrEnum):
     SELECT = "select"
     TEXT = "text"
     NUMBER = "number"
+    BOOLEAN = "boolean"
 
 
 class ProductStatus(StrEnum):
@@ -164,6 +165,18 @@ class Product(UUIDPKMixin, TimestampMixin, Base):
         nullable=True,
         index=True,
     )
+    created_by_seller_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id"),
+        nullable=True,
+        index=True,
+    )
+    """Which seller requested this product, if any — null means
+    admin-curated directly. Drives ownership while the product is still
+    draft/pending_review/rejected: only the requesting seller (or admin)
+    can edit or resubmit it. Once active, ownership no longer gates
+    anything — any active seller can add new variants/images, since the
+    product is now shared catalog. See products/docs/product-lifecycle.md."""
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(
         String(280), unique=True, nullable=False, index=True
@@ -227,9 +240,10 @@ class VariantAttributeValue(UUIDPKMixin, TimestampMixin, Base):
 
 class ProductImage(UUIDPKMixin, TimestampMixin, Base):
     """Canonical product image — stock photos, brand images. Represents the
-    product itself, not a specific seller's actual stock. Follows the same
-    Cloudinary pattern as seller_documents: no public URL stored; access is
-    through freshly-signed URLs."""
+    product itself, not a specific seller's actual stock. Uploaded with
+    delivery_type="upload" (public, CDN-cacheable) — unlike seller
+    documents, buyers browsing the catalog need a fast public URL, not a
+    freshly-signed one. See app/core/storage.py::get_public_url."""
 
     __tablename__ = "product_images"
 

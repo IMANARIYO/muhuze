@@ -90,12 +90,25 @@
 - [ ] Search by seller availability
 - [ ] Upgrade to dedicated search engine (Elasticsearch/Meilisearch) if needed
 
-## Phase 9 — Product Requests (seller-initiated)
+## Phase 9 — Product Requests (seller-initiated) (done — duplicate detection deferred)
 
-- [ ] `POST /api/v1/sellers/me/product-requests` — request new product
-- [ ] Admin review queue
-- [ ] Duplicate detection (admin can attach seller to existing product)
-- [ ] Tests
+- [x] `POST /api/v1/products` — now callable by an active seller too (not
+      just admin), tagged via `created_by_seller_id`; same endpoint,
+      widened auth via `require_admin_or_active_seller`
+- [x] `GET /api/v1/products/mine` — seller's own requests, any status
+- [x] `GET /api/v1/products?search=` — check for an existing product
+      before requesting a new one
+- [x] Ownership enforced on update/submit/variant-create/image-upload
+      while draft/pending_review/rejected; opens up to any active seller
+      once `active` (shared catalog)
+- [x] Admin review queue — reuses the existing pending_review/approve/
+      reject/archive endpoints, unchanged
+- [ ] Duplicate detection (admin manually attaching a seller's request to
+      an existing product instead of approving a true duplicate as a new
+      one) — deferred, no tooling for it yet; admin currently either
+      approves as a new product or rejects with a reason pointing the
+      seller at the existing one
+- [x] Tests
 
 ## Phase 10 — Advanced (much later)
 

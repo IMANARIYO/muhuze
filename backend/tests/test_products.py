@@ -112,6 +112,41 @@ async def create_product(
     return response.json()["data"]["id"]
 
 
+async def make_active_seller(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> dict:
+    """Registers a fresh account, becomes a seller, uploads the required
+    identity documents, submits for review, and has a fresh admin approve
+    it. Returns the seller's own auth tokens."""
+    fake_upload(monkeypatch)
+    _, tokens = await register_and_login(client)
+    headers = auth_headers(tokens)
+    await client.post(
+        "/api/v1/sellers",
+        json={"business_name": unique_name("Business")},
+        headers=headers,
+    )
+    for doc_type in ("national_id_front", "national_id_back"):
+        await client.post(
+            "/api/v1/sellers/me/documents",
+            data={"document_type": doc_type},
+            files={"file": ("id.jpg", b"fake-bytes", "image/jpeg")},
+            headers=headers,
+        )
+    await client.post("/api/v1/sellers/me/submit", headers=headers)
+
+    my_seller = await client.get("/api/v1/sellers/me", headers=headers)
+    seller_id = my_seller.json()["data"]["id"]
+
+    admin_tokens = await make_admin(client, db)
+    approved = await client.post(
+        f"/api/v1/sellers/{seller_id}/approve", headers=auth_headers(admin_tokens)
+    )
+    assert approved.status_code == 200
+    assert approved.json()["data"]["status"] == "active"
+    return tokens
+
+
 # --- brands ------------------------------------------------------------------
 
 
@@ -590,3 +625,214 @@ async def test_delete_unknown_image_is_404(
         f"/api/v1/products/{product_id}/images/{uuid.uuid4()}", headers=headers
     )
     assert response.status_code == 404
+
+
+# --- seller-initiated product requests ----------------------------------
+
+
+async def test_non_seller_non_admin_cannot_create_product(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    tokens = await make_admin(client, db)
+    category_id = await create_category(client, auth_headers(tokens))
+    _, buyer_tokens = await register_and_login(client)
+
+    response = await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=auth_headers(buyer_tokens),
+    )
+    assert response.status_code == 403
+
+
+async def test_active_seller_can_create_product_request(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    category_id = await create_category(client, auth_headers(admin_tokens))
+    seller_tokens = await make_active_seller(client, db, monkeypatch)
+
+    response = await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=auth_headers(seller_tokens),
+    )
+    assert response.status_code == 201
+    body = response.json()["data"]
+    assert body["status"] == "draft"
+    assert body["created_by_seller_id"] is not None
+
+
+async def test_seller_can_update_and_submit_own_product(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    admin_headers = auth_headers(admin_tokens)
+    category_id = await create_category(client, admin_headers)
+    seller_tokens = await make_active_seller(client, db, monkeypatch)
+    seller_headers = auth_headers(seller_tokens)
+
+    created = await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=seller_headers,
+    )
+    product_id = created.json()["data"]["id"]
+
+    updated = await client.patch(
+        f"/api/v1/products/{product_id}",
+        json={"category_id": category_id, "name": "Renamed by seller"},
+        headers=seller_headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["data"]["name"] == "Renamed by seller"
+
+    submitted = await client.post(
+        f"/api/v1/products/{product_id}/submit", headers=seller_headers
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["data"]["status"] == "pending_review"
+
+    approved = await client.post(
+        f"/api/v1/products/{product_id}/approve", headers=admin_headers
+    )
+    assert approved.status_code == 200
+    assert approved.json()["data"]["status"] == "active"
+
+
+async def test_seller_cannot_touch_another_sellers_product(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    category_id = await create_category(client, auth_headers(admin_tokens))
+    seller_a_tokens = await make_active_seller(client, db, monkeypatch)
+    seller_b_tokens = await make_active_seller(client, db, monkeypatch)
+
+    created = await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=auth_headers(seller_a_tokens),
+    )
+    product_id = created.json()["data"]["id"]
+
+    update_response = await client.patch(
+        f"/api/v1/products/{product_id}",
+        json={"category_id": category_id, "name": "Hijacked"},
+        headers=auth_headers(seller_b_tokens),
+    )
+    assert update_response.status_code == 403
+
+    submit_response = await client.post(
+        f"/api/v1/products/{product_id}/submit", headers=auth_headers(seller_b_tokens)
+    )
+    assert submit_response.status_code == 403
+
+
+async def test_only_creator_can_add_variant_before_approval(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    category_id = await create_category(client, auth_headers(admin_tokens))
+    seller_a_tokens = await make_active_seller(client, db, monkeypatch)
+    seller_b_tokens = await make_active_seller(client, db, monkeypatch)
+
+    created = await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=auth_headers(seller_a_tokens),
+    )
+    product_id = created.json()["data"]["id"]
+
+    other_seller_attempt = await client.post(
+        f"/api/v1/products/{product_id}/variants",
+        json={"attribute_values": []},
+        headers=auth_headers(seller_b_tokens),
+    )
+    assert other_seller_attempt.status_code == 403
+
+    own_attempt = await client.post(
+        f"/api/v1/products/{product_id}/variants",
+        json={"attribute_values": []},
+        headers=auth_headers(seller_a_tokens),
+    )
+    assert own_attempt.status_code == 201
+
+
+async def test_any_active_seller_can_add_variant_once_active(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    admin_headers = auth_headers(admin_tokens)
+    category_id = await create_category(client, admin_headers)
+    seller_a_tokens = await make_active_seller(client, db, monkeypatch)
+    seller_b_tokens = await make_active_seller(client, db, monkeypatch)
+
+    created = await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=auth_headers(seller_a_tokens),
+    )
+    product_id = created.json()["data"]["id"]
+    await client.post(
+        f"/api/v1/products/{product_id}/submit", headers=auth_headers(seller_a_tokens)
+    )
+    await client.post(f"/api/v1/products/{product_id}/approve", headers=admin_headers)
+
+    response = await client.post(
+        f"/api/v1/products/{product_id}/variants",
+        json={"attribute_values": []},
+        headers=auth_headers(seller_b_tokens),
+    )
+    assert response.status_code == 201
+
+
+async def test_list_my_products_returns_only_own(
+    client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    admin_tokens = await make_admin(client, db)
+    category_id = await create_category(client, auth_headers(admin_tokens))
+    seller_a_tokens = await make_active_seller(client, db, monkeypatch)
+    seller_b_tokens = await make_active_seller(client, db, monkeypatch)
+
+    mine = await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=auth_headers(seller_a_tokens),
+    )
+    mine_id = mine.json()["data"]["id"]
+    await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name()},
+        headers=auth_headers(seller_b_tokens),
+    )
+
+    response = await client.get(
+        "/api/v1/products/mine", headers=auth_headers(seller_a_tokens)
+    )
+    assert response.status_code == 200
+    ids = [p["id"] for p in response.json()["data"]]
+    assert ids == [mine_id]
+
+
+async def test_search_filters_products_by_name(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    tokens = await make_admin(client, db)
+    headers = auth_headers(tokens)
+    category_id = await create_category(client, headers)
+    unique_word = uuid.uuid4().hex
+    await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": f"Samsung {unique_word}"},
+        headers=headers,
+    )
+    await client.post(
+        "/api/v1/products",
+        json={"category_id": category_id, "name": unique_name("Unrelated")},
+        headers=headers,
+    )
+
+    response = await client.get("/api/v1/products", params={"search": unique_word})
+    results = response.json()["data"]
+    assert len(results) == 1
+    assert unique_word in results[0]["name"]

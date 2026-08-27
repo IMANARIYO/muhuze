@@ -40,18 +40,28 @@ str, "data": <endpoint-specific>}`.
    your account (separate from your login identity — see the Sellers tag
    description). Upload identity documents, `POST /sellers/me/submit`,
    then wait for an admin to `POST /sellers/{id}/approve`.
-4. **Catalog curation (admin-only in v1)** — Categories, Brands,
-   Attributes, Products, Variants, and Product Images are all
-   admin-curated for now: an approved seller cannot yet create or list
-   anything themselves. See the Products tag description for exactly
-   where that line is drawn today, and what's deliberately deferred.
+4. **Catalog curation** — Categories, Brands, and Attributes stay
+   admin-only (controlled vocabulary, prevents catalog fragmentation).
+   Products are different: an active seller can request a new one
+   (`POST /products`, tagged as theirs) and manage it while it's
+   `draft`/`pending_review`/`rejected`; once admin approves it, *any*
+   active seller can extend it with new variants/images. See the
+   Products tag description and `POST /products/mine`.
 
 ## Conventions
 
 - IDs are UUIDs everywhere.
-- List endpoints are unpaginated in v1 (catalog is still small).
-- A `404` always means "not found *or* you can't see it" — never used to
-  distinguish those two cases, to avoid leaking existence.
+- List endpoints are unpaginated in v1 (catalog is still small) — filter
+  params (`category_id`, `status`, `search`, etc.) narrow *which* rows
+  come back, but every matching row comes back in one response; there's
+  no `limit`/`offset` yet. Fine at today's scale, not forever.
+- `404` vs `403` is not uniform on purpose, not an oversight: identity
+  documents (`sellers/*/documents`) 404 on someone else's document —
+  hides whether it even exists, since it's private KYC data.
+  Product/listing ownership violations (editing another seller's
+  product or listing) return `403` instead — nothing sensitive to hide
+  there, and "you don't own this" is a far more useful error than a
+  confusing 404 on an ID that clearly exists.
 """
 
 app = FastAPI(
@@ -80,9 +90,10 @@ app = FastAPI(
                 "Becoming a seller: register a business profile tied to "
                 "your account, upload identity documents, submit for "
                 "review, and the admin actions that approve/reject/suspend "
-                "a seller. Being an active seller is a prerequisite for "
-                "the (not yet built) seller-listing flow — it doesn't by "
-                "itself grant catalog write access; see Products."
+                "a seller. Being an active seller is what unlocks writing "
+                "to the catalog (Products tag) and creating listings "
+                "(Seller Listings tag) — nothing here grants that on its "
+                "own until status is `active`."
             ),
         },
         {
@@ -90,7 +101,7 @@ app = FastAPI(
             "description": (
                 "The category tree products are classified into. Reads are "
                 "public; only admins create/edit categories, to keep the "
-                "tree from fragmenting (\"Phones\" vs \"Mobile Phones\")."
+                'tree from fragmenting ("Phones" vs "Mobile Phones").'
             ),
         },
         {
@@ -115,14 +126,32 @@ app = FastAPI(
             "description": (
                 "The catalog: Products (canonical SPU) -> Variants (SKUs, "
                 "each a specific combination of attribute values) -> "
-                "Images. **v1 status: admin-only end to end** — creating, "
-                "editing, submitting/approving/rejecting/archiving "
-                "products, creating variants, and uploading images all "
-                "require the admin role. There is no seller-facing "
-                "'publish my listing' endpoint yet — that's a separate, "
-                "not-yet-built piece (`seller_listings`: price, stock, "
-                "seller SKU) that will sit on top of an approved seller "
-                "plus an existing product/variant."
+                "Images. Creatable by admin *or* any active seller "
+                "(`POST /products`, tagged via `created_by_seller_id`) — "
+                "see `GET /products/mine`. While a product is "
+                "draft/pending_review/rejected, only its requesting "
+                "seller (or admin) can edit/submit it or add "
+                "variants/images (`403` otherwise); once admin approves "
+                "it, any active seller may extend it with new "
+                "variants/images. Approve/reject/archive stay admin-only "
+                "regardless of who created it. This tag does not cover "
+                "actually selling something — a Product/Variant has no "
+                "price or stock. See the Seller Listings tag for that."
+            ),
+        },
+        {
+            "name": "Seller Listings",
+            "description": (
+                "A seller's own offer for an existing, active variant — "
+                "price, stock, seller SKU, condition, and the seller's own "
+                "photos. This is what actually puts something up for sale: "
+                "a Product/Variant existing in the catalog is not enough "
+                "on its own, a seller still needs a listing against it. "
+                "Lifecycle mirrors Products: "
+                "draft -> pending_review -> active, with "
+                "suspend/reactivate/archive/unarchive alongside it. "
+                "Fully self-service for the owning seller; approve/reject/"
+                "suspend/reactivate are admin-only."
             ),
         },
     ],

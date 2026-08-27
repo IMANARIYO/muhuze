@@ -54,6 +54,10 @@ class ProductNotArchivableError(ConflictError):
     message = "Only an active product can be archived"
 
 
+class ProductOwnershipError(ForbiddenError):
+    message = "You do not own this product request"
+
+
 class DuplicateVariantAttributesError(ValidationAppError):
     message = "Another variant of this product already has this exact combination of attribute values"
 
