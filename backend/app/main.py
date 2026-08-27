@@ -34,8 +34,10 @@ str, "data": <endpoint-specific>}`.
    to get an `access_token` / `refresh_token` pair. Send the access token
    as `Authorization: Bearer <token>` on every endpoint below marked
    as requiring auth. `POST /auth/refresh` rotates it before it expires.
-2. **Browse the catalog** — `GET /categories`, `GET /brands`,
-   `GET /products` and friends need no auth at all; anyone can browse.
+2. **Browse the storefront** — `GET /catalog` lists what's actually for
+   sale (active listings with price/stock/seller); `GET /catalog/products/{id}`
+   is a product detail page. `GET /categories`, `GET /brands`,
+   `GET /attributes` are also public. All of these need no auth.
 3. **Want to sell?** — `POST /sellers` registers a seller profile tied to
    your account (separate from your login identity — see the Sellers tag
    description). Upload identity documents, `POST /sellers/me/submit`,
@@ -47,6 +49,49 @@ str, "data": <endpoint-specific>}`.
    `draft`/`pending_review`/`rejected`; once admin approves it, *any*
    active seller can extend it with new variants/images. See the
    Products tag description and `POST /products/mine`.
+
+## Publishing a product (seller's step-by-step)
+
+A product becomes buyable only once **both** a catalog Product/Variant
+*and* a seller's Listing are `active`. A listing has the price/stock and
+is what a buyer orders from — the Product click belongs to the admin
+curation side, so make sure everything is done in order:
+
+**Phase A — get a catalog entry approved (requires active seller)**
+
+1. `POST /sellers` + documents + `POST /sellers/me/submit`, then let an
+   admin `POST /sellers/{id}/approve` — unlock seller access. **One time.**
+2. `GET /products?search=...` — check the item isn't already in the catalog.
+3. `POST /products` — create the Product (SPU) as `draft`; it is tagged
+   as yours (`created_by_seller_id`).
+4. `POST /products/{product_id}/variants` — add every SKU (e.g.
+   Color=Black / Storage=128GB). Only you or admin can while `draft`;
+   any active seller can once the product is `active`.
+5. `POST /products/{product_id}/images` — optional product photos.
+6. `POST /products/{product_id}/submit` — lock it and queue for review
+   (`status` becomes `pending_review`; **not editable now**).
+7. Admin `POST /products/{product_id}/approve` → `active`. If rejected,
+   edit with `PATCH /products/{id}` and resubmit.
+
+**Phase B — actually put it up for sale (requires the above to be `active`)**
+
+8. `POST /listings` — create a Listing for a variant: this is where
+   `price`, `stock`, `condition` and the seller SKU live.
+9. `POST /listings/{listing_id}/images` — seller's own photos.
+10. `POST /listings/{listing_id}/submit` → `pending_review`.
+11. Admin `POST /listings/{listing_id}/approve` → `active` — **published
+    and orderable.** 🎉
+
+**Track progress**
+
+- `GET /products/mine` — your product requests (any status).
+- `GET /listings` — your listings, `?status=` to filter.
+- `GET /products/{id}/variants` — the variant IDs you need for Step 8.
+
+States (Product and Listing mirror each other): `draft` → `pending_review`
+→ `active` / `rejected`. Additional listing-only states: `suspended`,
+`out_of_stock`, `archived`. See each endpoint's description for the exact
+transitions and which role may call it.
 
 ## Conventions
 
@@ -152,6 +197,22 @@ app = FastAPI(
                 "suspend/reactivate/archive/unarchive alongside it. "
                 "Fully self-service for the owning seller; approve/reject/"
                 "suspend/reactivate are admin-only."
+            ),
+        },
+        {
+            "name": "Catalog",
+            "description": (
+                "The buyer-facing storefront (compare this with the "
+                "Products/Seller Listings tags, which are the admin/seller "
+                "side). Where Products and Listings expose drafts, "
+                "statuses, and ownership, Catalog is strictly read-only, "
+                "public, and only ever returns rows that are `active` "
+                "end-to-end — an active Product, an active Variant, offered "
+                "by an active Seller. This is what a frontend storefront "
+                "should call: `GET /catalog` to list what's for sale "
+                "(with price/stock/seller per listing), and "
+                "`GET /catalog/products/{id}` for a product detail page "
+                "listing each variant and every active seller offering it."
             ),
         },
     ],
