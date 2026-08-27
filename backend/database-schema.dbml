@@ -1,0 +1,260 @@
+// MUHUZE Global Link — Database Schema DBML for dbdiagram.io
+// Paste this at: https://dbdiagram.io/d -> clear the editor -> paste all
+// Source of truth: backend/app/modules/*/models.py (SQLAlchemy models),
+// registered centrally in backend/app/db/models.py.
+// CONVENTION: every FK is declared inline on its column with [ref: X], and a
+// table is added only once we can answer: what does it represent, who owns
+// it, what it references, its cardinality, and what constrains the relation.
+// Operators: `>` many-to-one, `-` one-to-one, `<` one-to-many.
+// Only the built modules are listed; orders/payments/wallets/withdrawals
+// /revenue/referrals/premium/seller_verification/notifications/admin are
+// planned, not yet built. UUID matches the real Postgres schema.
+
+// ── Catalog: categories ──────────────────────────────────────────────
+Table categories {
+  id uuid [pk]
+  parent_id uuid [ref: > categories.id, note: 'self-referential parent — null = top level; unique (parent_id, name)']
+  name varchar(150) [not null]
+  slug varchar(170) [not null, unique]
+  description text
+  image varchar(255) [note: 'Cloudinary URL']
+  sort_order int [not null, default: 0]
+  status varchar(20) [not null, default: 'active', note: 'active | inactive']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Catalog: sellers (supplier bridge) ───────────────────────────────
+Table sellers {
+  id uuid [pk]
+  account_id uuid [not null, unique, ref: - accounts.id, note: '1:0..1 with accounts']
+  business_name varchar(150) [not null, unique]
+  business_description text
+  status varchar(20) [not null, default: 'draft', note: 'draft | pending_review | active | rejected | suspended | deactivated']
+  rejection_reason text
+  submitted_at timestamp [note: 'null if draft']
+  reviewed_by uuid [note: 'accounts.id of the admin who reviewed']
+  reviewed_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table seller_documents {
+  id uuid [pk]
+  seller_id uuid [not null, ref: > sellers.id, note: 'CASCADE delete; unique (seller_id, document_type)']
+  document_type varchar(30) [not null, note: 'national_id_front | national_id_back | passport | driving_license']
+  cloudinary_public_id varchar(255) [not null]
+  cloudinary_resource_type varchar(20) [not null]
+  original_filename varchar(255)
+  mime_type varchar(100) [not null]
+  file_size int [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Catalog: brands & attributes ─────────────────────────────────────
+Table brands {
+  id uuid [pk]
+  name varchar(150) [not null, unique]
+  slug varchar(170) [not null, unique]
+  description text
+  status varchar(20) [not null, default: 'active', note: 'active | inactive']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table attributes {
+  id uuid [pk]
+  name varchar(100) [not null]
+  slug varchar(120) [not null, unique]
+  input_type varchar(20) [not null, default: 'select', note: 'select | text | number | boolean']
+  unit varchar(20)
+  status varchar(20) [not null, default: 'active', note: 'active | inactive']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table category_attributes {
+  id uuid [pk]
+  category_id uuid [not null, ref: > categories.id]
+  attribute_id uuid [not null, ref: > attributes.id, note: 'unique (category_id, attribute_id)']
+  is_required boolean [not null, default: false]
+  is_variant boolean [not null, default: false]
+  is_filterable boolean [not null, default: false]
+  sort_order int [not null, default: 0]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Catalog: products (SPU) ──────────────────────────────────────────
+Table products {
+  id uuid [pk]
+  category_id uuid [not null, ref: > categories.id]
+  brand_id uuid [ref: > brands.id, note: 'null = no brand']
+  created_by_seller_id uuid [ref: > sellers.id, note: 'null = admin-curated directly; else the requesting seller']
+  name varchar(255) [not null]
+  slug varchar(280) [not null, unique]
+  description text [note: 'may contain markdown']
+  status varchar(20) [not null, default: 'draft', note: 'draft | pending_review | active | rejected | archived']
+  rejection_reason text
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table product_variants {
+  id uuid [pk]
+  product_id uuid [not null, ref: > products.id, note: 'CASCADE delete']
+  sku_code varchar(50)
+  status varchar(20) [not null, default: 'active', note: 'active | inactive']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table variant_attribute_values {
+  id uuid [pk]
+  variant_id uuid [not null, ref: > product_variants.id, note: 'CASCADE delete; unique (variant_id, attribute_id)']
+  attribute_id uuid [not null, ref: > attributes.id]
+  value varchar(255) [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table product_images {
+  id uuid [pk]
+  product_id uuid [not null, ref: > products.id, note: 'CASCADE delete']
+  cloudinary_public_id varchar(255) [not null]
+  cloudinary_resource_type varchar(20) [not null]
+  original_filename varchar(255)
+  mime_type varchar(100) [not null]
+  file_size int [not null]
+  sort_order int [not null, default: 0]
+  is_primary boolean [not null, default: false]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Catalog: seller listings (the offer) ─────────────────────────────
+Table seller_listings {
+  id uuid [pk]
+  seller_id uuid [not null, ref: > sellers.id, note: 'unique (seller_id, variant_id)']
+  variant_id uuid [not null, ref: > product_variants.id]
+  price decimal(12,2) [not null]
+  stock int [not null, default: 0]
+  seller_sku varchar(100)
+  condition varchar(20) [not null, default: 'new', note: 'new | like_new | used']
+  status varchar(20) [not null, default: 'draft', note: 'draft | pending_review | active | rejected | suspended | out_of_stock | archived']
+  rejection_reason text
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table listing_images {
+  id uuid [pk]
+  listing_id uuid [not null, ref: > seller_listings.id, note: 'CASCADE delete']
+  cloudinary_public_id varchar(255) [not null]
+  cloudinary_resource_type varchar(20) [not null]
+  original_filename varchar(255)
+  mime_type varchar(100) [not null]
+  file_size int [not null]
+  sort_order int [not null, default: 0]
+  is_primary boolean [not null, default: false]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Auth: accounts & sessions ────────────────────────────────────────
+Table accounts {
+  id uuid [pk]
+  email varchar(255) [not null, unique]
+  phone varchar(20) [unique, note: 'nullable']
+  password_hash varchar(255) [not null]
+  is_active boolean [not null, default: true]
+  is_verified boolean [not null, default: false]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table profiles {
+  id uuid [pk]
+  account_id uuid [not null, unique, ref: - accounts.id, note: '1:1 with accounts — personal info kept separate']
+  first_name varchar(100) [not null]
+  last_name varchar(100) [not null]
+  date_of_birth date
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table refresh_tokens {
+  id uuid [pk]
+  account_id uuid [not null, ref: > accounts.id]
+  token_hash varchar(64) [not null, unique, note: 'only the hash is stored']
+  expires_at timestamp [not null]
+  revoked_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table verification_codes {
+  id uuid [pk]
+  account_id uuid [not null, ref: > accounts.id]
+  purpose varchar(30) [not null, note: 'email_verification | phone_verification']
+  code_hash varchar(64) [not null]
+  expires_at timestamp [not null]
+  verified_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table password_reset_tokens {
+  id uuid [pk]
+  account_id uuid [not null, ref: > accounts.id]
+  token_hash varchar(64) [not null, unique]
+  expires_at timestamp [not null]
+  used_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Auth: roles & permissions ────────────────────────────────────────
+Table roles {
+  id uuid [pk]
+  name varchar(50) [not null, unique, note: 'seeded: buyer | seller | admin']
+  description varchar(255)
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table permissions {
+  id uuid [pk]
+  code varchar(100) [not null, unique, note: 'e.g. products.delete']
+  name varchar(150) [not null]
+  description varchar(255)
+  resource varchar(50) [not null]
+  action varchar(50) [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table account_roles {
+  id uuid [pk]
+  account_id uuid [not null, ref: > accounts.id, note: 'unique (account_id, role_id)']
+  role_id uuid [not null, ref: > roles.id, note: 'CASCADE delete']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table role_permissions {
+  id uuid [pk]
+  role_id uuid [not null, ref: > roles.id, note: 'CASCADE delete; unique (role_id, permission_id)']
+  permission_id uuid [not null, ref: > permissions.id, note: 'CASCADE delete']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table account_permissions {
+  id uuid [pk]
+  account_id uuid [not null, ref: > accounts.id, note: 'GRANT only, no deny; unique (account_id, permission_id)']
+  permission_id uuid [not null, ref: > permissions.id, note: 'CASCADE delete']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
