@@ -16,5 +16,17 @@ from app.modules.auth.models import (  # noqa: F401
     RolePermission,
     VerificationCode,
 )
+from app.modules.categories.models import Category  # noqa: F401
+from app.modules.products.models import (  # noqa: F401
+    Attribute,
+    Brand,
+    CategoryAttribute,
+    ListingImage,
+    Product,
+    ProductImage,
+    ProductVariant,
+    SellerListing,
+    VariantAttributeValue,
+)
 from app.modules.sellers.models import Seller, SellerDocument  # noqa: F401
 from app.modules.users.models import Profile  # noqa: F401

@@ -106,6 +106,13 @@ def _do_get_signed_url(public_id: str, *, resource_type: str) -> str:
     return url
 
 
+def _do_get_public_url(public_id: str, *, resource_type: str) -> str:
+    url, _options = cloudinary.utils.cloudinary_url(
+        public_id, resource_type=resource_type, type="upload", secure=True
+    )
+    return url
+
+
 async def upload_file(
     file: UploadFile,
     *,
@@ -169,3 +176,13 @@ async def get_signed_url(public_id: str, *, resource_type: str = "image") -> str
     just HMAC-signs the URL locally — so this isn't wrapped in to_thread."""
     _ensure_configured()
     return _do_get_signed_url(public_id, resource_type=resource_type)
+
+
+async def get_public_url(public_id: str, *, resource_type: str = "image") -> str:
+    """A stable, unsigned URL for a file uploaded with
+    `delivery_type="upload"` (the public/default case — product photos,
+    brand logos, etc). Never use this for anything uploaded as
+    "authenticated" — call `get_signed_url` for that instead. Cheap and
+    offline, same as `get_signed_url`."""
+    _ensure_configured()
+    return _do_get_public_url(public_id, resource_type=resource_type)
