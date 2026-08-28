@@ -254,6 +254,13 @@ class AuthorizationService:
     async def list_permissions(self) -> list[Permission]:
         return await self.authorization.get_all_permissions()
 
+    async def get_role_names_for_accounts(
+        self, account_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[str]]:
+        """Role names grouped by account_id for a set of accounts — used by
+        the admin account-directory endpoint to avoid N+1 role lookups."""
+        return await self.authorization.get_role_names_for_accounts(account_ids)
+
     async def assign_role_to_account(
         self, account_id: uuid.UUID, role_name: str
     ) -> None:

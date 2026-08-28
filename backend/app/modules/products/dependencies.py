@@ -36,6 +36,10 @@ def get_listing_controller(db: AsyncSession = Depends(get_db)) -> ListingControl
     return ListingController(db)
 
 
+def get_authorization_service(db: AsyncSession = Depends(get_db)) -> AuthorizationService:
+    return AuthorizationService(AuthorizationRepository(db), AccountRepository(db))
+
+
 @dataclass(frozen=True, slots=True)
 class ProductActor:
     """Who is writing to the catalog right now. `seller_id=None` means

@@ -5,15 +5,28 @@ import type { Account, AuthUser, Authorization, LoginInput, RegisterInput, Token
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface RoleRecord {
+  id: string;
   name: string;
   description: string | null;
-  created_at: string;
 }
 
 export interface PermissionRecord {
+  id: string;
   code: string;
+  name: string;
   description: string | null;
+  resource: string;
+  action: string;
+}
+
+export interface AccountRecord {
+  id: string;
+  email: string;
+  phone: string | null;
+  is_active: boolean;
+  is_verified: boolean;
   created_at: string;
+  roles: string[];
 }
 
 export interface ProfileRecord {
@@ -151,8 +164,8 @@ export const authService = {
     return unwrap(api.post<ApiResponse<RoleRecord>>("/auth/roles", { name, description }), "Role could not be created.");
   },
 
-  async updateRole(roleName: string, description: string): Promise<RoleRecord> {
-    return unwrap(api.patch<ApiResponse<RoleRecord>>(`/auth/roles/${roleName}`, { description }), "Role could not be updated.");
+  async updateRole(roleName: string, changes: { name: string; description?: string | null }): Promise<RoleRecord> {
+    return unwrap(api.patch<ApiResponse<RoleRecord>>(`/auth/roles/${roleName}`, changes), "Role could not be updated.");
   },
 
   async deleteRole(roleName: string): Promise<void> {
@@ -164,16 +177,21 @@ export const authService = {
     return unwrap(api.get<ApiResponse<PermissionRecord[]>>("/auth/permissions"), "Permissions could not be loaded.");
   },
 
-  async createPermission(code: string, description?: string): Promise<PermissionRecord> {
-    return unwrap(api.post<ApiResponse<PermissionRecord>>("/auth/permissions", { code, description }), "Permission could not be created.");
+  async createPermission(input: { code: string; name: string; resource: string; action: string; description?: string }): Promise<PermissionRecord> {
+    return unwrap(api.post<ApiResponse<PermissionRecord>>("/auth/permissions", input), "Permission could not be created.");
   },
 
-  async updatePermission(code: string, description: string): Promise<PermissionRecord> {
-    return unwrap(api.patch<ApiResponse<PermissionRecord>>(`/auth/permissions/${code}`, { description }), "Permission could not be updated.");
+  async updatePermission(code: string, changes: { name: string; description?: string | null; resource: string; action: string }): Promise<PermissionRecord> {
+    return unwrap(api.patch<ApiResponse<PermissionRecord>>(`/auth/permissions/${code}`, changes), "Permission could not be updated.");
   },
 
   async deletePermission(code: string): Promise<void> {
     await api.delete(`/auth/permissions/${code}`);
+  },
+
+  // ── Accounts directory (admin) ──
+  async listAccounts(): Promise<AccountRecord[]> {
+    return unwrap(api.get<ApiResponse<AccountRecord[]>>("/auth/accounts"), "Accounts could not be loaded.");
   },
 
   // ── Account roles (admin) ──
@@ -203,8 +221,8 @@ export const authService = {
   },
 
   // ── Direct account permissions (admin) ──
-  async listDirectPermissions(accountId: string): Promise<PermissionRecord[]> {
-    return unwrap(api.get<ApiResponse<PermissionRecord[]>>(`/auth/accounts/${accountId}/permissions`), "Direct permissions could not be loaded.");
+  async listDirectPermissions(accountId: string): Promise<string[]> {
+    return unwrap(api.get<ApiResponse<string[]>>(`/auth/accounts/${accountId}/permissions`), "Direct permissions could not be loaded.");
   },
 
   async grantDirectPermission(accountId: string, permissionCode: string): Promise<void> {

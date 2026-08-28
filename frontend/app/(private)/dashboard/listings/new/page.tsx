@@ -23,19 +23,20 @@ export default function NewListingPage() {
 
   // Search active products
   useEffect(() => {
-    if (!search.trim()) { setProducts([]); return; }
+    let cancelled = false;
     const timer = setTimeout(async () => {
+      if (!search.trim()) { if (!cancelled) setProducts([]); return; }
       setSearching(true);
       try {
         const results = await productService.list({ status: "active", search: search.trim() });
-        setProducts(results);
+        if (!cancelled) setProducts(results);
       } catch {
-        setProducts([]);
+        if (!cancelled) setProducts([]);
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
     }, 400);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [search]);
 
   async function selectProduct(product: ProductRecord) {

@@ -10,26 +10,7 @@ import {
 } from "lucide-react";
 import { Footer } from "./_components/public/footer";
 import { Header } from "./_components/public/header";
-import { products } from "./lib/data";
-
-const productVisuals = [
-  {
-    color: "#dce9d7",
-    image: "https://images.unsplash.com/photo-1447933601403-0c6688de566e?auto=format&fit=crop&w=900&q=85",
-  },
-  {
-    color: "#f3dfc7",
-    image: "https://images.unsplash.com/photo-1610701596007-11502861dcfa?auto=format&fit=crop&w=900&q=85",
-  },
-  {
-    color: "#f0ddd4",
-    image: "https://images.unsplash.com/photo-1612817288484-6f916006741a?auto=format&fit=crop&w=900&q=85",
-  },
-  {
-    color: "#dce7d7",
-    image: "https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?auto=format&fit=crop&w=900&q=85",
-  },
-];
+import { FeaturedProducts } from "./_components/public/featured-products";
 
 const categories = [
   { label: "Food & drink", count: "24 sellers", color: "#e8f1df", icon: Leaf },
@@ -105,9 +86,7 @@ export default function Home() {
 
         <section className="bg-white py-20 sm:py-24" aria-labelledby="products-title">
           <div className="mx-auto max-w-6xl px-6"><div className="flex items-end justify-between gap-5"><div><p className="text-xs font-bold uppercase tracking-[.16em] text-[#5d8974]">Fresh from the network</p><h2 id="products-title" className="mt-3 text-3xl font-black tracking-[-.04em] sm:text-4xl">A few things we love</h2></div><Link href="/products" className="hidden items-center gap-1 text-sm font-bold text-[#39836e] sm:flex">Browse products <ArrowRight size={15} /></Link></div>
-            <div className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {products.slice(0, 4).map((product, index) => <Link href="/products" key={product.id} className="group"><div className="relative aspect-[.92] overflow-hidden rounded-xl" style={{ background: productVisuals[index].color }}><div className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105" style={{ backgroundImage: `url(${productVisuals[index].image})` }} /><span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold text-[var(--ink)]">{product.category}</span></div><div className="mt-4 flex items-start justify-between gap-3"><div><h3 className="text-sm font-bold group-hover:text-[#39836e]">{product.name}</h3><p className="mt-1 text-xs text-[var(--muted)]">by {product.sellerName}</p></div><p className="text-sm font-bold">${product.price.toFixed(2)}</p></div></Link>)}
-            </div>
+            <FeaturedProducts />
           </div>
         </section>
 

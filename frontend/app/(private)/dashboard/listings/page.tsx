@@ -25,15 +25,43 @@ export default function ListingsPage() {
   const [error, setError] = useState("");
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [editListing, setEditListing] = useState<ListingRecord | null>(null);
+  const [editPrice, setEditPrice] = useState("");
+  const [editStock, setEditStock] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [sellerGate, setSellerGate] = useState<null | "not_seller" | "inactive">(null);
   const isAdmin = hasRole("admin");
+  const isSeller = Boolean(user?.roles?.includes("seller"));
+
+  function isSellerGateError(caught: unknown): boolean {
+    const msg = caught instanceof Error ? caught.message : "";
+    return /seller not found|seller is not active|active seller/i.test(msg);
+  }
+
+  function gateKindFromError(caught: unknown): "not_seller" | "inactive" {
+    const msg = caught instanceof Error ? caught.message : "";
+    return /seller is not active|active seller/i.test(msg) ? "inactive" : "not_seller";
+  }
 
   async function load() {
     setLoading(true);
     try {
+      if (!isAdmin && !isSeller) {
+        setSellerGate("not_seller");
+        setListings([]);
+        setError("");
+        return;
+      }
       setListings(isAdmin ? await adminService.listListings() : await productService.listListings());
       setError("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Listings could not be loaded.");
+      if (!isAdmin && isSellerGateError(caught)) {
+        setSellerGate(gateKindFromError(caught));
+        setListings([]);
+        setError("");
+      } else {
+        setError(caught instanceof Error ? caught.message : "Listings could not be loaded.");
+      }
     } finally {
       setLoading(false);
     }
@@ -45,17 +73,31 @@ export default function ListingsPage() {
     async function init() {
       setLoading(true);
       try {
+        if (!isAdmin && !isSeller) {
+          if (!cancelled) {
+            setSellerGate("not_seller");
+            setListings([]);
+            setError("");
+          }
+          return;
+        }
         const data = isAdmin ? await adminService.listListings() : await productService.listListings();
         if (!cancelled) { setListings(data); setError(""); }
       } catch (caught) {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "Listings could not be loaded.");
+        if (!cancelled && !isAdmin && isSellerGateError(caught)) {
+          setSellerGate(gateKindFromError(caught));
+          setListings([]);
+          setError("");
+        } else if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "Listings could not be loaded.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     void init();
     return () => { cancelled = true; };
-  }, [isAdmin, user]);
+  }, [isAdmin, isSeller, user]);
 
   async function submitListing(id: string) {
     try { await productService.submitListing(id); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Listing could not be submitted."); }
@@ -78,6 +120,43 @@ export default function ListingsPage() {
     try { await adminService.reactivateListing(id); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Listing could not be reactivated."); }
   }
 
+  function openEdit(listing: ListingRecord) {
+    setEditListing(listing);
+    setEditPrice(String(listing.price));
+    setEditStock(String(listing.stock));
+  }
+
+  async function saveEdit() {
+    if (!editListing) return;
+    const price = Number(editPrice);
+    const stock = Number(editStock);
+    if (!Number.isFinite(price) || price <= 0) { setError("Price must be a positive number."); return; }
+    if (!Number.isInteger(stock) || stock < 0) { setError("Stock must be a whole number (0 or more)."); return; }
+    try {
+      if (editListing.status === "active") {
+        await productService.updateListingPrice(editListing.id, price);
+        await productService.updateListingStock(editListing.id, stock);
+      } else {
+        await productService.updateListing(editListing.id, { price, stock });
+      }
+      setEditListing(null);
+      await load();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Listing could not be updated."); }
+  }
+
+  async function archiveListing(id: string) {
+    try { await productService.archiveListing(id); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Listing could not be archived."); }
+  }
+
+  async function unarchiveListing(id: string) {
+    try { await productService.unarchiveListing(id); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Listing could not be unarchived."); }
+  }
+
+  async function confirmDelete() {
+    if (!deleteId) return;
+    try { await productService.deleteListing(deleteId); setDeleteId(null); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Listing could not be deleted."); }
+  }
+
   const pending = listings.filter((l) => l.status === "pending_review");
   const rest = listings.filter((l) => l.status !== "pending_review");
 
@@ -96,13 +175,13 @@ export default function ListingsPage() {
             : "Your offers, prices, stock, and review status. A listing is what clients can actually buy."}
         </p>
       </div>
-      {!isAdmin && (
+      {!isAdmin && !sellerGate && (
         <Link href="/dashboard/listings/new">
           <Button><Plus size={15} /> Create listing</Button>
         </Link>
       )}
 
-      {error && <p role="alert" className="rounded-lg bg-[#fbe6e0] px-4 py-3 text-sm text-[#b74d3b]">{error}</p>}
+      {error && !sellerGate && <p role="alert" className="rounded-lg bg-[#fbe6e0] px-4 py-3 text-sm text-[#b74d3b]">{error}</p>}
 
       {/* Reject modal */}
       {rejectId && (
@@ -124,7 +203,76 @@ export default function ListingsPage() {
         </div>
       )}
 
-      {loading ? (
+      {/* Edit price/stock modal */}
+      {editListing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="text-lg font-bold">Edit listing {editListing.id.slice(0, 8)}</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {editListing.status === "active"
+                ? "Live price and stock changes apply to buyers immediately."
+                : "Price and stock for a listing awaiting approval."}
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--muted)]">Price (RWF)</label>
+                <input
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                  inputMode="decimal"
+                  className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--teal)]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--muted)]">Stock</label>
+                <input
+                  value={editStock}
+                  onChange={(e) => setEditStock(e.target.value)}
+                  inputMode="numeric"
+                  className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--teal)]"
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditListing(null)}>Cancel</Button>
+              <Button onClick={saveEdit}>Save changes</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete listing modal */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="text-lg font-bold">Delete listing</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">This permanently deletes the draft listing. This cannot be undone.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+              <Button onClick={confirmDelete}>Delete listing</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sellerGate ? (
+        <div className="rounded-xl border border-dashed border-[var(--line)] bg-white p-14 text-center">
+          <Package className="mx-auto text-[#9aa9a1]" size={32} />
+          <h2 className="mt-4 font-bold">
+            {sellerGate === "not_seller" ? "You need a seller profile first" : "Your seller account is not active"}
+          </h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-[var(--muted)]">
+            {sellerGate === "not_seller"
+              ? "Apply as a seller to start listing products. Once your profile is approved, you'll manage your listings here."
+              : "Your seller profile isn't active right now. Review your profile or submit it again, then you'll manage listings here once you're live."}
+          </p>
+          <div className="mt-5">
+            <Link href="/dashboard/seller">
+              <Button>{sellerGate === "not_seller" ? "Become a seller" : "View seller profile"}</Button>
+            </Link>
+          </div>
+        </div>
+      ) : loading ? (
         <div className="rounded-xl border border-[var(--line)] bg-white p-10 text-center text-sm text-[var(--muted)]">Loading listings...</div>
       ) : listings.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--line)] bg-white p-14 text-center">
@@ -197,8 +345,20 @@ export default function ListingsPage() {
                           <td className="px-5 py-4 text-[var(--muted)]">{new Date(listing.created_at).toLocaleDateString()}</td>
                           <td className="px-5 py-4">
                             <div className="flex gap-1.5">
+                              {!isAdmin && ["draft", "rejected", "active", "archived"].includes(listing.status) && (
+                                <Button size="sm" variant="outline" onClick={() => openEdit(listing)}>Edit</Button>
+                              )}
                               {!isAdmin && ["draft", "rejected"].includes(listing.status) && (
                                 <Button size="sm" variant="outline" onClick={() => submitListing(listing.id)}><Send size={12} /> Submit</Button>
+                              )}
+                              {!isAdmin && listing.status === "draft" && (
+                                <Button size="sm" variant="outline" onClick={() => setDeleteId(listing.id)}>Delete</Button>
+                              )}
+                              {!isAdmin && listing.status === "active" && (
+                                <Button size="sm" variant="outline" onClick={() => archiveListing(listing.id)}>Archive</Button>
+                              )}
+                              {!isAdmin && listing.status === "archived" && (
+                                <Button size="sm" onClick={() => unarchiveListing(listing.id)}>Unarchive</Button>
                               )}
                               {isAdmin && listing.status === "active" && (
                                 <Button size="sm" variant="outline" onClick={() => suspendListing(listing.id)}>Suspend</Button>

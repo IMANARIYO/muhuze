@@ -1,43 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle, CreditCard, Send } from "lucide-react";
 import { Card, CardContent } from "@/app/_components/ui/card";
-import { Button } from "@/app/_components/ui/button";
-import { payments as initialPayments } from "@/app/lib/data";
-import type { Payment } from "@/app/lib/types";
-
-const statusColors: Record<string, { bg: string; text: string }> = {
-  pending:   { bg: "#fbf0ce", text: "#b58a24" },
-  completed: { bg: "#e8f4ed", text: "#2d7a5e" },
-  refunded:  { bg: "#fbe6e0", text: "#d75e4a" },
-};
+import { revenueService, type RevenueTransactionResponse } from "@/app/services/revenue.service";
+import { rwf } from "@/app/lib/utils";
 
 const payoutColors: Record<string, { bg: string; text: string }> = {
-  pending: { bg: "#fbf0ce", text: "#b58a24" },
-  sent:    { bg: "#e8f4ed", text: "#2d7a5e" },
-  failed:  { bg: "#fbe6e0", text: "#d75e4a" },
+  held: { bg: "#fbf0ce", text: "#b58a24" },
+  released: { bg: "#e8f4ed", text: "#2d7a5e" },
 };
 
 export default function PaymentsPage() {
-  const [payments, setPayments] = useState<Payment[]>(initialPayments);
+  const [txns, setTxns] = useState<RevenueTransactionResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const sendPayout = (id: string) => {
-    setPayments((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, payoutStatus: "sent" } : p))
-    );
-  };
+  useEffect(() => {
+    let cancelled = false;
+    revenueService
+      .all()
+      .then((rows) => { if (!cancelled) setTxns(rows); })
+      .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Payments could not be loaded."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
-  const totalRevenue = payments.filter((p) => p.status === "completed").reduce((s, p) => s + p.amount, 0);
-  const totalCommission = payments.filter((p) => p.status === "completed").reduce((s, p) => s + p.commission, 0);
-  const pendingPayouts = payments.filter((p) => p.payoutStatus === "pending" && p.status === "completed");
+  const totalRevenue = txns.reduce((s, t) => s + t.amount, 0);
+  const totalCommission = txns.reduce((s, t) => s + t.commission_amount, 0);
+  const pendingPayouts = txns.filter((t) => t.status === "held");
+  const pendingPayoutAmount = pendingPayouts.reduce((s, t) => s + t.seller_earning, 0);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight text-[var(--ink)]">Payments</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Manage all payments and send commission payouts to sellers.
+          The MUHUZE commission split, derived the moment a payment clears. Earnings are held until the buyer confirms receipt.
         </p>
       </div>
 
@@ -46,113 +45,84 @@ export default function PaymentsPage() {
         <Card className="border-[#bdded1] bg-[#e8f4ed]">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-[#78857f]">Total Revenue</span>
+              <span className="text-xs text-[#78857f]">Gross volume</span>
               <CreditCard size={16} className="text-[#59ac88]" />
             </div>
-            <p className="mt-3 text-3xl font-extrabold tracking-tight text-[var(--ink)]">
-              ${totalRevenue.toFixed(2)}
-            </p>
-            <p className="mt-1 text-[11px] text-[#9aa39e]">Completed payments</p>
+            <p className="mt-3 text-3xl font-extrabold tracking-tight text-[var(--ink)]">{rwf(totalRevenue)}</p>
+            <p className="mt-1 text-[11px] text-[#9aa39e]">Cleared payments</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-[#78857f]">Platform Commission</span>
+              <span className="text-xs text-[#78857f]">Platform commission</span>
               <CheckCircle size={16} className="text-[#a7b0aa]" />
             </div>
-            <p className="mt-3 text-3xl font-extrabold tracking-tight text-[var(--ink)]">
-              ${totalCommission.toFixed(2)}
-            </p>
-            <p className="mt-1 text-[11px] text-[#9aa39e]">10% of completed sales</p>
+            <p className="mt-3 text-3xl font-extrabold tracking-tight text-[var(--ink)]">{rwf(totalCommission)}</p>
+            <p className="mt-1 text-[11px] text-[#9aa39e]">7% premium / 12% basic</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-[#78857f]">Pending Payouts</span>
+              <span className="text-xs text-[#78857f]">Held payouts</span>
               <Send size={16} className="text-[#a7b0aa]" />
             </div>
-            <p className="mt-3 text-3xl font-extrabold tracking-tight text-[var(--ink)]">
-              {pendingPayouts.length}
-            </p>
-            <p className="mt-1 text-[11px] text-[#9aa39e]">
-              ${pendingPayouts.reduce((s, p) => s + p.sellerPayout, 0).toFixed(2)} to send
-            </p>
+            <p className="mt-3 text-3xl font-extrabold tracking-tight text-[var(--ink)]">{pendingPayouts.length}</p>
+            <p className="mt-1 text-[11px] text-[#9aa39e]">{rwf(pendingPayoutAmount)} awaiting receipt</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Payments table */}
+      {/* Transactions table */}
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-[#f9fbf9]">
-                  <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Order</th>
-                  <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Client</th>
-                  <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Seller</th>
-                  <th className="px-5 py-3 text-right font-bold text-[var(--muted)]">Amount</th>
-                  <th className="px-5 py-3 text-right font-bold text-[var(--muted)]">Commission</th>
-                  <th className="px-5 py-3 text-right font-bold text-[var(--muted)]">Seller Gets</th>
-                  <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Payment</th>
-                  <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Payout</th>
-                  <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#eff1ef]">
-                {payments.map((pay) => {
-                  const sc = statusColors[pay.status];
-                  const pc = payoutColors[pay.payoutStatus];
-                  const canPayout = pay.status === "completed" && pay.payoutStatus === "pending";
-                  return (
-                    <tr key={pay.id} className="hover:bg-[#f9fbf9]">
-                      <td className="px-5 py-3 font-semibold text-[var(--ink)]">#{pay.orderId}</td>
-                      <td className="px-5 py-3 text-[var(--muted)]">{pay.clientName}</td>
-                      <td className="px-5 py-3 text-[var(--muted)]">{pay.sellerName}</td>
-                      <td className="px-5 py-3 text-right font-bold text-[var(--ink)]">${pay.amount.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right text-[var(--teal)]">${pay.commission.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right font-bold text-[var(--ink)]">${pay.sellerPayout.toFixed(2)}</td>
-                      <td className="px-5 py-3">
-                        <span
-                          className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize"
-                          style={{ backgroundColor: sc.bg, color: sc.text }}
-                        >
-                          {pay.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3">
-                        <span
-                          className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize"
-                          style={{ backgroundColor: pc.bg, color: pc.text }}
-                        >
-                          {pay.payoutStatus}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3">
-                        {canPayout ? (
-                          <Button
-                            size="sm"
-                            className="h-7 gap-1 px-3 text-[10px]"
-                            onClick={() => sendPayout(pay.id)}
-                          >
-                            <Send size={11} /> Send Payout
-                          </Button>
-                        ) : pay.payoutStatus === "sent" ? (
-                          <span className="flex items-center gap-1 text-[10px] text-[#2d7a5e]">
-                            <CheckCircle size={11} /> Sent
+          {loading ? (
+            <div className="p-10 text-center text-sm text-[var(--muted)]">Loading payments…</div>
+          ) : error ? (
+            <p role="alert" className="m-5 rounded-lg bg-[#fbe6e0] px-4 py-3 text-sm text-[#b74d3b]">{error}</p>
+          ) : txns.length === 0 ? (
+            <div className="p-14 text-center">
+              <p className="font-bold">No payments yet</p>
+              <p className="mt-2 text-sm text-[var(--muted)]">Once buyers complete MOMO payments, the split appears here.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-[var(--line)] bg-[#f9fbf9]">
+                    <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Order</th>
+                    <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Payment</th>
+                    <th className="px-5 py-3 text-right font-bold text-[var(--muted)]">Amount</th>
+                    <th className="px-5 py-3 text-right font-bold text-[var(--muted)]">Commission</th>
+                    <th className="px-5 py-3 text-right font-bold text-[var(--muted)]">Seller gets</th>
+                    <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Status</th>
+                    <th className="px-5 py-3 text-left font-bold text-[var(--muted)]">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eff1ef]">
+                  {txns.map((txn) => {
+                    const pc = payoutColors[txn.status] ?? payoutColors.held;
+                    return (
+                      <tr key={txn.id} className="hover:bg-[#f9fbf9]">
+                        <td className="px-5 py-3 font-semibold text-[var(--ink)]">#{txn.order_id.slice(0, 8)}</td>
+                        <td className="px-5 py-3 font-mono text-[10px] text-[var(--muted)]">{txn.payment_id.slice(0, 8)}</td>
+                        <td className="px-5 py-3 text-right font-bold text-[var(--ink)]">{rwf(txn.amount)}</td>
+                        <td className="px-5 py-3 text-right text-[var(--teal)]">{rwf(txn.commission_amount)}</td>
+                        <td className="px-5 py-3 text-right font-bold text-[var(--ink)]">{rwf(txn.seller_earning)}</td>
+                        <td className="px-5 py-3">
+                          <span className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize" style={{ backgroundColor: pc.bg, color: pc.text }}>
+                            {txn.status}
                           </span>
-                        ) : (
-                          <span className="text-[10px] text-[var(--muted)]">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="px-5 py-3 text-[var(--muted)]">{new Date(txn.created_at).toLocaleDateString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

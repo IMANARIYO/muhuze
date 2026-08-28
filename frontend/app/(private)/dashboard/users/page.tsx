@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, Plus, Shield, Trash2, UserRound, X } from "lucide-react";
 import { Button } from "@/app/_components/ui/button";
 import { Avatar } from "@/app/_components/ui/avatar";
-import { authService, type PermissionRecord, type RoleRecord } from "@/app/services/auth.service";
+import { authService, type AccountRecord, type PermissionRecord, type RoleRecord } from "@/app/services/auth.service";
 import type { SellerProfile } from "@/app/services/seller.service";
 import { adminService } from "@/app/services/admin.service";
 
@@ -12,28 +12,14 @@ import { adminService } from "@/app/services/admin.service";
 // We derive users from the sellers list (which has account_id) plus
 // the roles/permissions catalog which is admin-accessible.
 
-interface AccountEntry {
-  id: string; // account_id
-  email: string;
-  roles: string[];
-  source: "seller" | "unknown";
-  sellerStatus?: SellerProfile["status"];
-  businessName?: string;
-}
-
-const roleColors: Record<string, { bg: string; text: string }> = {
-  admin:  { bg: "#fbe6e0", text: "#d75e4a" },
-  seller: { bg: "#e8f4ed", text: "#2d7a5e" },
-  buyer:  { bg: "#e4edfa", text: "#577ebd" },
+const roleChipClasses: Record<string, string> = {
+  admin: "bg-[#fbe6e0] text-[#b74d3b]",
+  seller: "bg-[#e8f4ed] text-[#2d7a5e]",
+  buyer: "bg-[#e4edfa] text-[#577ebd]",
 };
 
-function getInitials(email: string): string {
-  const parts = email.split("@")[0].split(/[._-]/);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return email.slice(0, 2).toUpperCase();
-}
-
 export default function UsersPage() {
+  const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [sellers, setSellers] = useState<SellerProfile[]>([]);
   const [allRoles, setAllRoles] = useState<RoleRecord[]>([]);
   const [allPermissions, setAllPermissions] = useState<PermissionRecord[]>([]);
@@ -43,7 +29,7 @@ export default function UsersPage() {
   // Expanded account panel
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [accountRoles, setAccountRoles] = useState<Record<string, RoleRecord[]>>({});
-  const [accountPerms, setAccountPerms] = useState<Record<string, PermissionRecord[]>>({});
+  const [accountPerms, setAccountPerms] = useState<Record<string, string[]>>({});
   const [loadingAccount, setLoadingAccount] = useState(false);
 
   // Role management
@@ -60,8 +46,11 @@ export default function UsersPage() {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleDesc, setNewRoleDesc] = useState("");
-  const [newPermCode, setNewPermCode] = useState("");
-  const [newPermDesc, setNewPermDesc] = useState("");
+  const [editingRole, setEditingRole] = useState<RoleRecord | null>(null);
+  const [roleEditForm, setRoleEditForm] = useState({ name: "", description: "" });
+  const [newPerm, setNewPerm] = useState({ code: "", name: "", resource: "", action: "", description: "" });
+  const [editingPerm, setEditingPerm] = useState<PermissionRecord | null>(null);
+  const [permEditForm, setPermEditForm] = useState({ name: "", resource: "", action: "", description: "" });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
 
@@ -70,11 +59,13 @@ export default function UsersPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [sellerList, roles, perms] = await Promise.all([
+      const [accountsList, sellerList, roles, perms] = await Promise.all([
+        authService.listAccounts(),
         adminService.listSellers(),
         authService.listRoles(),
         authService.listPermissions(),
       ]);
+      setAccounts(accountsList);
       setSellers(sellerList);
       setAllRoles(roles);
       setAllPermissions(perms);
@@ -86,7 +77,27 @@ export default function UsersPage() {
     }
   }
 
-  useEffect(() => { void loadAll(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      authService.listAccounts(),
+      adminService.listSellers(),
+      authService.listRoles(),
+      authService.listPermissions(),
+    ])
+      .then(([accountsList, sellerList, roles, perms]) => {
+        if (!cancelled) {
+          setAccounts(accountsList);
+          setSellers(sellerList);
+          setAllRoles(roles);
+          setAllPermissions(perms);
+          setError("");
+        }
+      })
+      .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Data could not be loaded."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   async function toggleAccount(accountId: string) {
     if (expandedId === accountId) { setExpandedId(null); return; }
@@ -174,10 +185,17 @@ export default function UsersPage() {
 
   async function createPermission(e: React.FormEvent) {
     e.preventDefault();
+    if (!newPerm.code || !newPerm.name || !newPerm.resource || !newPerm.action) { setError("Code, name, resource and action are required."); return; }
     setSaving(true);
     try {
-      await authService.createPermission(newPermCode, newPermDesc || undefined);
-      setNewPermCode(""); setNewPermDesc("");
+      await authService.createPermission({
+        code: newPerm.code,
+        name: newPerm.name,
+        resource: newPerm.resource,
+        action: newPerm.action,
+        description: newPerm.description || undefined,
+      });
+      setNewPerm({ code: "", name: "", resource: "", action: "", description: "" });
       flash("Permission created.");
       await loadAll();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Permission could not be created."); } finally { setSaving(false); }
@@ -185,6 +203,45 @@ export default function UsersPage() {
 
   async function deletePermission(code: string) {
     try { await authService.deletePermission(code); flash("Permission deleted."); await loadAll(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Permission could not be deleted."); }
+  }
+
+  async function startEditRole(role: RoleRecord) {
+    setEditingRole(role);
+    setRoleEditForm({ name: role.name, description: role.description ?? "" });
+  }
+
+  async function saveRole(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingRole) return;
+    setSaving(true);
+    try {
+      await authService.updateRole(editingRole.name, { name: roleEditForm.name, description: roleEditForm.description || null });
+      setEditingRole(null);
+      flash("Role updated.");
+      await loadAll();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Role could not be updated."); } finally { setSaving(false); }
+  }
+
+  async function startEditPerm(perm: PermissionRecord) {
+    setEditingPerm(perm);
+    setPermEditForm({ name: perm.name, resource: perm.resource, action: perm.action, description: perm.description ?? "" });
+  }
+
+  async function savePermission(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingPerm) return;
+    setSaving(true);
+    try {
+      await authService.updatePermission(editingPerm.code, {
+        name: permEditForm.name,
+        resource: permEditForm.resource,
+        action: permEditForm.action,
+        description: permEditForm.description || null,
+      });
+      setEditingPerm(null);
+      flash("Permission updated.");
+      await loadAll();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Permission could not be updated."); } finally { setSaving(false); }
   }
 
   async function assignPermToRole(roleName: string, permCode: string) {
@@ -206,7 +263,7 @@ export default function UsersPage() {
   }
 
   const tabs = [
-    { key: "accounts" as const, label: "Accounts", count: sellers.length },
+    { key: "accounts" as const, label: "Accounts", count: accounts.length },
     { key: "roles" as const, label: "Roles", count: allRoles.length },
     { key: "permissions" as const, label: "Permissions", count: allPermissions.length },
   ];
@@ -243,28 +300,39 @@ export default function UsersPage() {
           {/* ── ACCOUNTS TAB ── */}
           {adminTab === "accounts" && (
             <div className="space-y-3">
-              {sellers.length === 0 ? (
+              {accounts.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-[var(--line)] bg-white p-12 text-center">
                   <UserRound className="mx-auto text-[#9aa9a1]" size={28} />
-                  <p className="mt-3 text-sm text-[var(--muted)]">No seller accounts found.</p>
+                  <p className="mt-3 text-sm text-[var(--muted)]">No accounts registered yet.</p>
                 </div>
-              ) : sellers.map((seller) => {
-                const accountId = seller.account_id;
+              ) : accounts.map((account) => {
+                const accountId = account.id;
+                const seller = sellers.find((s) => s.account_id === accountId);
                 const isExpanded = expandedId === accountId;
                 const roles = accountRoles[accountId];
                 const perms = accountPerms[accountId];
+                const initials = seller ? seller.business_name.slice(0, 2).toUpperCase() : account.email.slice(0, 2).toUpperCase();
 
                 return (
                   <article key={accountId} className="rounded-xl border border-[var(--line)] bg-white overflow-hidden">
                     <div className="flex items-center gap-4 p-5">
-                      <Avatar initials={seller.business_name.slice(0, 2).toUpperCase()} size="md" color="#39836e" />
+                      <Avatar initials={initials} size="md" color={seller ? "#39836e" : "#829eb8"} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-[var(--ink)]">{seller.business_name}</p>
-                        <p className="text-xs text-[var(--muted)] font-mono">{accountId.slice(0, 16)}…</p>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${seller.status === "active" ? "bg-[#e8f4ed] text-[#2d7a5e]" : "bg-[#f2f5f2] text-[#7e8b84]"}`}>
-                            seller · {seller.status}
-                          </span>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-[var(--ink)]">{seller?.business_name ?? account.email}</p>
+                          {seller && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${seller.status === "active" ? "bg-[#e8f4ed] text-[#2d7a5e]" : "bg-[#f2f5f2] text-[#7e8b84]"}`}>seller · {seller.status}</span>}
+                        </div>
+                        <p className="mt-0.5 text-xs text-[var(--muted)] truncate">{account.email}{account.phone ? ` · ${account.phone}` : ""}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1">
+                          {account.roles.map((role) => (
+                            <span key={role} className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${roleChipClasses[role] ?? "bg-[#f2f5f2] text-[#7e8b84]"}`}>{role}</span>
+                          ))}
+                          {account.is_verified ? (
+                            <span className="rounded-full bg-[#e4edfa] px-2 py-0.5 text-[10px] font-bold text-[#577ebd]">verified</span>
+                          ) : (
+                            <span className="rounded-full bg-[#f8e8dc] px-2 py-0.5 text-[10px] font-bold text-[#b0783d]">unverified</span>
+                          )}
+                          {!account.is_active && <span className="rounded-full bg-[#fbe6e0] px-2 py-0.5 text-[10px] font-bold text-[#b74d3b]">disabled</span>}
                         </div>
                       </div>
                       <button
@@ -331,10 +399,10 @@ export default function UsersPage() {
                                 </button>
                               </div>
                               <div className="flex flex-wrap gap-2">
-                                {(perms ?? []).map((p) => (
-                                  <span key={p.code} className="flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[#f9fbf9] px-3 py-1 text-[11px] font-mono">
-                                    {p.code}
-                                    <button onClick={() => revokePerm(accountId, p.code)} className="text-[var(--muted)] hover:text-[#b74d3b]"><X size={11} /></button>
+                                {(perms ?? []).map((code) => (
+                                  <span key={code} className="flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[#f9fbf9] px-3 py-1 text-[11px] font-mono">
+                                    {code}
+                                    <button onClick={() => revokePerm(accountId, code)} className="text-[var(--muted)] hover:text-[#b74d3b]"><X size={11} /></button>
                                   </span>
                                 ))}
                                 {(perms ?? []).length === 0 && <p className="text-xs text-[var(--muted)]">No direct permissions.</p>}
@@ -394,9 +462,33 @@ export default function UsersPage() {
                           <button onClick={() => toggleRolePerms(role.name)} className="text-[11px] font-bold text-[var(--teal)] hover:underline">
                             {expandedRole === role.name ? "Hide" : "Permissions"}
                           </button>
+                          <button onClick={() => startEditRole(role)} className="text-[11px] font-bold text-[var(--ink)] hover:underline">Edit</button>
                           <button onClick={() => deleteRole(role.name)} className="text-[var(--muted)] hover:text-[#b74d3b]"><Trash2 size={13} /></button>
                         </div>
                       </div>
+                      {editingRole?.name === role.name && (
+                        <form onSubmit={saveRole} className="border-t border-[var(--line)] bg-[#f9fbf9] px-5 py-4 space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <input
+                              required
+                              value={roleEditForm.name}
+                              onChange={(e) => setRoleEditForm((f) => ({ ...f, name: e.target.value }))}
+                              placeholder="Role name"
+                              className="flex h-9 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]"
+                            />
+                            <input
+                              value={roleEditForm.description}
+                              onChange={(e) => setRoleEditForm((f) => ({ ...f, description: e.target.value }))}
+                              placeholder="Description (optional)"
+                              className="flex h-9 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button type="submit" size="sm" disabled={saving}><Check size={13} /> Save</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => setEditingRole(null)}><X size={13} /> Cancel</Button>
+                          </div>
+                        </form>
+                      )}
                       {expandedRole === role.name && (
                         <div className="border-t border-[var(--line)] bg-[#f9fbf9] px-5 py-4 space-y-3">
                           <div className="flex flex-wrap gap-2">
@@ -434,8 +526,13 @@ export default function UsersPage() {
                 <h2 className="font-bold">Create permission</h2>
                 <p className="mt-1 text-xs text-[var(--muted)]">Permissions are code-defined and synced. Only create here if you need a custom one not in the codebase.</p>
                 <form onSubmit={createPermission} className="mt-4 space-y-3">
-                  <input required value={newPermCode} onChange={(e) => setNewPermCode(e.target.value)} placeholder="Permission code (e.g. products:write)" className="flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
-                  <input value={newPermDesc} onChange={(e) => setNewPermDesc(e.target.value)} placeholder="Description (optional)" className="flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                  <input required value={newPerm.code} onChange={(e) => setNewPerm((p) => ({ ...p, code: e.target.value }))} placeholder="Code (e.g. products.create)" className="flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                  <input required value={newPerm.name} onChange={(e) => setNewPerm((p) => ({ ...p, name: e.target.value }))} placeholder="Name (e.g. Create products)" className="flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input required value={newPerm.resource} onChange={(e) => setNewPerm((p) => ({ ...p, resource: e.target.value }))} placeholder="Resource (e.g. products)" className="flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                    <input required value={newPerm.action} onChange={(e) => setNewPerm((p) => ({ ...p, action: e.target.value }))} placeholder="Action (e.g. create)" className="flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                  </div>
+                  <input value={newPerm.description} onChange={(e) => setNewPerm((p) => ({ ...p, description: e.target.value }))} placeholder="Description (optional)" className="flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
                   <Button type="submit" disabled={saving}><Plus size={14} /> Create permission</Button>
                 </form>
               </div>
@@ -445,10 +542,35 @@ export default function UsersPage() {
                 </div>
                 <div className="divide-y divide-[#eff1ef] max-h-[500px] overflow-y-auto">
                   {allPermissions.map((perm) => (
-                    <div key={perm.code} className="flex items-center gap-3 px-5 py-3">
-                      <p className="flex-1 font-mono text-xs font-bold text-[var(--ink)]">{perm.code}</p>
-                      {perm.description && <p className="text-xs text-[var(--muted)] flex-1">{perm.description}</p>}
-                      <button onClick={() => deletePermission(perm.code)} className="shrink-0 text-[var(--muted)] hover:text-[#b74d3b]"><Trash2 size={13} /></button>
+                    <div key={perm.code} className="overflow-hidden">
+                      <div className="flex items-center gap-3 px-5 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono text-xs font-bold text-[var(--ink)]">{perm.code}</p>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs text-[var(--muted)]">{perm.name}</span>
+                            <span className="rounded-full bg-[#f2f5f2] px-1.5 py-0.5 text-[9px] font-bold text-[#7e8b84]">{perm.resource} · {perm.action}</span>
+                            {perm.description && <span className="text-[11px] text-[var(--muted)]">{perm.description}</span>}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button onClick={() => startEditPerm(perm)} className="text-[11px] font-bold text-[var(--ink)] hover:underline">Edit</button>
+                          <button onClick={() => deletePermission(perm.code)} className="text-[var(--muted)] hover:text-[#b74d3b]"><Trash2 size={13} /></button>
+                        </div>
+                      </div>
+                      {editingPerm?.code === perm.code && (
+                        <form onSubmit={savePermission} className="border-t border-[var(--line)] bg-[#f9fbf9] px-5 py-4 space-y-3">
+                          <input required value={permEditForm.name} onChange={(e) => setPermEditForm((f) => ({ ...f, name: e.target.value }))} placeholder="Name" className="flex h-9 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                          <div className="grid grid-cols-2 gap-3">
+                            <input required value={permEditForm.resource} onChange={(e) => setPermEditForm((f) => ({ ...f, resource: e.target.value }))} placeholder="Resource" className="flex h-9 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                            <input required value={permEditForm.action} onChange={(e) => setPermEditForm((f) => ({ ...f, action: e.target.value }))} placeholder="Action" className="flex h-9 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                          </div>
+                          <input value={permEditForm.description} onChange={(e) => setPermEditForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description (optional)" className="flex h-9 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]" />
+                          <div className="flex gap-2">
+                            <Button type="submit" size="sm" disabled={saving}><Check size={13} /> Save</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => setEditingPerm(null)}><X size={13} /> Cancel</Button>
+                          </div>
+                        </form>
+                      )}
                     </div>
                   ))}
                   {allPermissions.length === 0 && <p className="px-5 py-4 text-xs text-[var(--muted)]">No permissions yet. Run the sync script to populate from code.</p>}

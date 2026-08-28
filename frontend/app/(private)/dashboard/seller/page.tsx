@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronRight, Clock, FileText, Send, ShieldCheck, Store, Upload, X } from "lucide-react";
 import { Button } from "@/app/_components/ui/button";
@@ -303,9 +304,9 @@ export default function SellerPage() {
           <ShieldCheck size={28} className="mx-auto text-[var(--teal)]" />
           <h2 className="mt-3 font-bold text-[var(--ink)]">You&apos;re an active seller!</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">Your seller account is approved and operational. Head to My Products to request catalog entries and start creating listings.</p>
-          <a href="/dashboard/products" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[var(--teal)] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#28918a] transition-colors">
+          <Link href="/dashboard/products" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[var(--teal)] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#28918a] transition-colors">
             Go to My Products <ChevronRight size={15} />
-          </a>
+          </Link>
         </div>
       )}
     </div>

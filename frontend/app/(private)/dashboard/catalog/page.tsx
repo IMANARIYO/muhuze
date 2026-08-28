@@ -47,7 +47,20 @@ export default function CatalogSetupPage() {
     }
   }
 
-  useEffect(() => { void loadAll(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      adminService.listCategories(),
+      adminService.listBrands(),
+      adminService.listAttributes(),
+    ])
+      .then(([cats, brnds, attrs]) => {
+        if (!cancelled) { setCategories(cats); setBrands(brnds); setAttributes(attrs); setError(""); }
+      })
+      .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Catalog data could not be loaded."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   function flash(msg: string) { setSuccess(msg); setTimeout(() => setSuccess(""), 3000); }
 

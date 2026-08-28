@@ -12,6 +12,7 @@ from app.modules.auth.repository import (
 )
 from app.modules.auth.schemas import (
     AccountResponse,
+    AccountWithRolesResponse,
     AssignPermissionRequest,
     AssignRoleRequest,
     AuthorizationResponse,
@@ -53,6 +54,27 @@ class AuthController:
             accounts, PasswordResetTokenRepository(db), refresh_tokens
         )
         self.authorization = AuthorizationService(authorization_repo, accounts)
+        self.accounts = accounts
+
+    async def list_accounts(self) -> list[AccountWithRolesResponse]:
+        """Every account (newest first) with its role names — the admin
+        user directory."""
+        all_accounts = await self.accounts.list_all()
+        role_names = await self.authorization.get_role_names_for_accounts(
+            [account.id for account in all_accounts]
+        )
+        return [
+            AccountWithRolesResponse(
+                id=account.id,
+                email=account.email,
+                phone=account.phone,
+                is_active=account.is_active,
+                is_verified=account.is_verified,
+                created_at=account.created_at,
+                roles=role_names.get(account.id, []),
+            )
+            for account in all_accounts
+        ]
 
     async def register(self, payload: RegisterRequest) -> AccountResponse:
         account = await self.auth.register(

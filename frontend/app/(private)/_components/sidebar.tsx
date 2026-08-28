@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   CircleHelp,
   ClipboardList,
@@ -28,6 +29,7 @@ import type { UserRole } from "@/app/lib/types";
 import { RoleSwitcher } from "./role-switcher";
 import { useAuth } from "@/app/context/auth-context";
 import { useRouter } from "next/navigation";
+import { cartService } from "@/app/services/cart.service";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number }>> = {
   LayoutDashboard,
@@ -59,6 +61,17 @@ export function Sidebar({ role, onRoleChange, availableRoles, mobileOpen, onMobi
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const [cartCount, setCartCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (role !== "client" || !user) return;
+    let cancelled = false;
+    cartService
+      .get()
+      .then((cart) => { if (!cancelled) setCartCount(cart.item_count); })
+      .catch(() => { if (!cancelled) setCartCount(0); });
+    return () => { cancelled = true; };
+  }, [role, user]);
 
   const filteredNav = navItems.filter((item) => item.roles.includes(role));
   const filteredBottom = bottomNavItems.filter((item) => item.roles.includes(role));
@@ -66,7 +79,7 @@ export function Sidebar({ role, onRoleChange, availableRoles, mobileOpen, onMobi
   async function handleLogout() {
     await logout();
     onMobileClose();
-    router.replace("/login");
+    router.replace("/");
   }
 
   return (
@@ -130,9 +143,9 @@ export function Sidebar({ role, onRoleChange, availableRoles, mobileOpen, onMobi
             >
               {Icon && <Icon size={17} />}
               <span className="flex-1">{item.label}</span>
-              {item.count && (
+              {item.href === "/dashboard/cart" && role === "client" && cartCount !== null && cartCount > 0 && (
                 <span className="rounded-full bg-[#d5f2e2] px-2 py-0.5 text-[10px] font-semibold text-[#39836e]">
-                  {item.count}
+                  {cartCount}
                 </span>
               )}
             </Link>

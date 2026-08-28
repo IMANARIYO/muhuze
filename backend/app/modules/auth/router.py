@@ -11,6 +11,7 @@ from app.modules.auth.dependencies import (
 from app.modules.auth.models import Account
 from app.modules.auth.schemas import (
     AccountResponse,
+    AccountWithRolesResponse,
     AssignPermissionRequest,
     AssignRoleRequest,
     AuthorizationResponse,
@@ -179,6 +180,16 @@ async def list_permissions(
     return success_response(
         data=permissions, message="Permissions retrieved successfully"
     )
+
+
+@router.get("/accounts")
+async def list_accounts(
+    admin: Account = Depends(require_role("admin")),
+    controller: AuthController = Depends(get_auth_controller),
+) -> APIResponse[list[AccountWithRolesResponse]]:
+    """List every account (newest first) with its role names. Admin only."""
+    accounts = await controller.list_accounts()
+    return success_response(data=accounts, message="Accounts retrieved successfully")
 
 
 @router.post("/accounts/{account_id}/roles", status_code=status.HTTP_201_CREATED)

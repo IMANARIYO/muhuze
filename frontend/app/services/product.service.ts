@@ -71,4 +71,7 @@ export const productService = {
   rejectListing(id: string, reason: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/reject`, { reason }), "Listing could not be rejected."); },
   suspendListing(id: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/suspend`), "Listing could not be suspended."); },
   reactivateListing(id: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/reactivate`), "Listing could not be reactivated."); },
+  archiveListing(id: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/archive`), "Listing could not be archived."); },
+  unarchiveListing(id: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/unarchive`), "Listing could not be unarchived."); },
+  deleteListing(id: string) { return unwrap(api.delete<ApiResponse<null>>(`/listings/${id}`), "Listing could not be deleted."); },
 };

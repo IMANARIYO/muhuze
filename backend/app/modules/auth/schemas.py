@@ -26,6 +26,21 @@ class AccountResponse(BaseModel):
     created_at: datetime = Field(description="When the account was created (UTC)")
 
 
+class AccountWithRolesResponse(BaseModel):
+    """Account plus the role names it holds — for admin directory views
+    listing every account in one response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID = Field(description="Account ID")
+    email: str = Field(description="Account email address")
+    phone: str | None = Field(description="Phone number (if provided)")
+    is_active: bool = Field(description="Whether the account is active")
+    is_verified: bool = Field(description="Whether the email has been verified")
+    created_at: datetime = Field(description="When the account was created (UTC)")
+    roles: list[str] = Field(description="Role names assigned to this account")
+
+
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token (short-lived)")
     refresh_token: str = Field(description="JWT refresh token (long-lived)")
