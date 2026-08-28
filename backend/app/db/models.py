@@ -16,7 +16,17 @@ from app.modules.auth.models import (  # noqa: F401
     RolePermission,
     VerificationCode,
 )
+from app.modules.addresses.models import ShippingAddress  # noqa: F401
+from app.modules.carts.models import CartItem  # noqa: F401
 from app.modules.categories.models import Category  # noqa: F401
+from app.modules.orders.models import (  # noqa: F401
+    Order,
+    OrderItem,
+    SellerOrder,
+    Shipment,
+    ShippingInfo,
+)
+from app.modules.payments.models import Payment  # noqa: F401
 from app.modules.premium.models import PremiumPlan, SellerSubscription  # noqa: F401
 from app.modules.products.models import (  # noqa: F401
     Attribute,
@@ -29,5 +39,6 @@ from app.modules.products.models import (  # noqa: F401
     SellerListing,
     VariantAttributeValue,
 )
+from app.modules.revenue.models import RevenueTransaction  # noqa: F401
 from app.modules.sellers.models import Seller, SellerDocument  # noqa: F401
 from app.modules.users.models import Profile  # noqa: F401

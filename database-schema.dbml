@@ -6,9 +6,23 @@
 // table is added only once we can answer: what does it represent, who owns
 // it, what it references, its cardinality, and what constrains the relation.
 // Operators: `>` many-to-one, `-` one-to-one, `<` one-to-many.
-// Only the built modules are listed; orders/payments/wallets/withdrawals
-// /revenue/referrals/seller_verification/notifications/admin are planned,
-// not yet built. UUID matches the real Postgres schema.
+// Only the built modules are listed; wallets/withdrawals/referrals/
+// seller_verification/notifications/admin are planned, not yet built.
+// UUID matches the real Postgres schema.
+//
+// COMMERCE (orders/payments/revenue/shipping_addresses/carts) is designed
+// here ahead of its SQLAlchemy implementation. Frontend never computes
+// money — every money fact has exactly one backend record (see
+// backend/docs/financial-flow-design.md): order -> payment -> revenue.
+// A cart references seller_listings (a specific seller's offer). The order
+// belongs to the BUYER and is multi-seller capable: each order_item carries
+// seller_id, so the backend always knows who fulfills what even inside one
+// order. shipping_infos is an immutable per-order SNAPSHOT of the chosen
+// shipping_address — later edits to the address book never change past
+// orders. seller_orders (per-seller fulfillment, created at payment time) +
+// shipments (delivery tracking) are now active: orders -> seller_orders
+// (one per distinct seller) -> shipments.
+// State machines are separate (order / payment_status / seller fulfillment).
 
 // ── Catalog: categories ──────────────────────────────────────────────
 Table categories {
@@ -208,6 +222,193 @@ Table listing_images {
   file_size int [not null]
   sort_order int [not null, default: 0]
   is_primary boolean [not null, default: false]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Commerce: carts & addresses ─────────────────────────────────────
+Table cart_items {
+  id uuid [pk]
+  account_id uuid [not null, ref: > accounts.id, note: 'the buyer']
+  listing_id uuid [not null, ref: > seller_listings.id, note: 'a specific seller offer; unique (account_id, listing_id) — adding again bumps quantity']
+  quantity int [not null, default: 1, note: '>= 1']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// The customer's address BOOK — mutable and editable. Orders never depend
+// on a live row here; they reference an immutable snapshot (shipping_infos).
+Table shipping_addresses {
+  id uuid [pk]
+  account_id uuid [not null, ref: > accounts.id, note: 'owner']
+  label varchar(50) [note: 'Home | Work | Other']
+  recipient_name varchar(150) [not null]
+  phone varchar(20) [not null, note: 'delivery recipient phone — separate from accounts.phone (deliver to mother, call her)']
+  country varchar(60) [not null, default: 'Rwanda']
+  province varchar(100)
+  district varchar(100)
+  sector varchar(100)
+  cell varchar(100)
+  village varchar(100)
+  address_line varchar(255) [note: 'street / building / landmarks']
+  delivery_instructions varchar(255) [note: 'e.g. call on arrival, deliver after 6pm']
+  latitude decimal(10,7) [note: 'for future delivery calc + nearby sellers']
+  longitude decimal(10,7)
+  is_default boolean [not null, default: false]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Commerce: orders (buyer-owned, multi-seller capable) ─────────────
+// The order belongs to the BUYER, not any seller. One checkout can span
+// many sellers: each order_item carries its own seller_id, so the backend
+// always knows who must fulfill what — even though it's a single order from
+// the customer's perspective. ALL money here is GROSS (what the buyer
+// pays), captured as snapshots at checkout. The commission split is derived
+// later in revenue_transactions, never stored redundantly here.
+// State machines are intentionally SEPARATE:
+//   order lifecycle: pending | cancelled
+//   payment_status:  pending | paid | failed | refunded | partially_refunded
+//   seller fulfillment (seller_orders): pending | accepted | shipped
+//                      | delivered | rejected | cancelled
+Table orders {
+  id uuid [pk]
+  order_number varchar(30) [not null, unique, note: 'human-readable, e.g. MUH-2026-000123']
+  buyer_account_id uuid [not null, ref: > accounts.id, note: 'belongs to the buyer, never a seller']
+  status varchar(20) [not null, default: 'pending', note: 'order lifecycle: pending | cancelled']
+  payment_status varchar(20) [not null, default: 'pending', note: 'pending | paid | failed | refunded | partially_refunded — sourced from payments']
+  shipping_address_id uuid [ref: > shipping_addresses.id, note: 'which saved address was picked at checkout (for reference)']
+  shipping_info_id uuid [ref: > shipping_infos.id, note: 'the immutable order-owned snapshot actually used for delivery']
+  contact_phone varchar(20) [note: 'captured at checkout — separate from accounts.phone']
+  subtotal decimal(12,2) [not null, default: '0', note: 'sum of order_items subtotal']
+  shipping_fee decimal(12,2) [not null, default: '0', note: 'total delivery fee across sellers']
+  discount_amount decimal(12,2) [not null, default: '0', note: 'promo discount (0 for now)']
+  total_amount decimal(12,2) [not null, note: 'subtotal + shipping_fee - discount_amount']
+  currency varchar(8) [not null, default: 'RWF']
+  notes varchar(255) [note: 'buyer order notes']
+  paid_at timestamp
+  completed_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table order_items {
+  id uuid [pk]
+  order_id uuid [not null, ref: > orders.id]
+  seller_id uuid [not null, ref: > sellers.id, note: 'which seller fulfills/earns this line — the multi-seller key']
+  listing_id uuid [not null, ref: > seller_listings.id, note: 'the exact seller offer bought']
+  product_variant_id uuid [not null, ref: > product_variants.id]
+  product_name varchar(255) [not null, note: 'transaction snapshot — never a live join (see below)']
+  variant_name varchar(255) [note: 'e.g. 128GB / Black']
+  unit_price decimal(12,2) [not null, note: 'SNAPSHOT from the listing at purchase time']
+  quantity int [not null]
+  subtotal decimal(12,2) [not null, note: 'unit_price * quantity']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// WHY the snapshot matters: seller A sells a phone today for 150000 and
+// raises it to 170000 tomorrow. The completed order must still say 150000 —
+// so order_items copies product_name/variant_name/unit_price at purchase
+// instead of trusting the live product/listing rows. This is the single
+// most important ecommerce-schema concept and is built in from the start.
+
+Table shipping_infos {
+  id uuid [pk]
+  order_id uuid [not null, ref: > orders.id, note: 'one immutable snapshot per order']
+  recipient_name varchar(150) [not null]
+  phone varchar(20) [not null]
+  country varchar(60) [not null, default: 'Rwanda']
+  province varchar(100)
+  district varchar(100)
+  sector varchar(100)
+  cell varchar(100)
+  village varchar(100)
+  address_line varchar(255)
+  delivery_instructions varchar(255)
+  latitude decimal(10,7)
+  longitude decimal(10,7)
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Commerce: seller fulfillment & delivery ─────────────────────────
+// seller_orders groups the order by seller (one row per distinct seller),
+// created in the same DB transaction as revenue when Payment -> paid.
+// Shipments hang off seller_orders and track carrier/delivery status.
+Table seller_orders {
+  id uuid [pk]
+  order_id uuid [not null, ref: > orders.id, note: 'which buyer order this fulfills']
+  seller_id uuid [not null, ref: > sellers.id, note: 'which seller fulfills this group']
+  status varchar(20) [not null, default: 'pending', note: 'pending | accepted | rejected | shipped | delivered | cancelled']
+  rejected_reason text [note: 'set when seller rejects']
+  accepted_at timestamp [note: 'set on accept']
+  shipped_at timestamp [note: 'set on ship']
+  delivered_at timestamp [note: 'set on deliver']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (order_id) [note: 'fast lookup by buyer order']
+    (seller_id) [note: 'fast lookup by seller']
+    (status) [note: 'filter by fulfillment status']
+    unique(order_id, seller_id) [name: 'uq_seller_orders_order_seller']
+  }
+}
+
+Table shipments {
+  id uuid [pk]
+  seller_order_id uuid [not null, ref: > seller_orders.id, note: 'which seller order this shipment belongs to']
+  carrier varchar(60) [note: 'carrier name (nullable until assigned)']
+  tracking_number varchar(255) [note: 'carrier tracking ref']
+  status varchar(20) [not null, default: 'pending', note: 'pending | shipped | delivered']
+  shipped_at timestamp [note: 'when carrier picked up']
+  delivered_at timestamp [note: 'when delivered to buyer']
+  notes text
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (seller_order_id) [note: 'fast lookup by seller order']
+    (status) [note: 'filter by shipment status']
+  }
+}
+
+// ── Commerce: payments & revenue ────────────────────────────────────
+// Payment stays its own module so money-in isn't tangled into orders.
+// Mobile money (Airtel Money) is the first payment method: create ->
+// request_reference (stored as provider_ref) -> callback POST /{id}/paid
+// -> revenue + seller_orders derived in the same DB transaction.
+Table payments {
+  id uuid [pk]
+  order_id uuid [not null, ref: > orders.id, note: 'one payment per order']
+  status varchar(20) [not null, default: 'pending', note: 'pending | paid | failed | refunded']
+  amount decimal(12,2) [not null, note: '= order.total']
+  currency varchar(8) [not null, default: 'RWF']
+  method varchar(30) [default: 'airtel_money', note: 'airtel_money (first PSP)']
+  provider_ref varchar(255) [note: 'gateway request_reference, e.g. MOMO-XXXXXXXXXXXX']
+  momo_phone varchar(20) [note: 'buyer Airtel Money wallet to charge (nullable)']
+  airtel_phone varchar(20) [note: 'Airtel line the payment is sent from (nullable)']
+  paid_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// The single accounting record. Created EXACTLY ONCE, in the same DB
+// transaction as Payment -> paid (unique order_id = idempotency, never
+// double-credited). revenue_rate is the 7% (premium) / 12% (basic)
+// snapshot resolved via premium.get_commission_rate at paid time.
+Table revenue_transactions {
+  id uuid [pk]
+  order_id uuid [not null, unique, ref: > orders.id]
+  payment_id uuid [not null, ref: > payments.id]
+  seller_id uuid [not null, ref: > sellers.id]
+  amount decimal(12,2) [not null, note: 'seller gross']
+  revenue_rate decimal(5,2) [not null, note: '7% premium | 12% basic snapshot']
+  commission_amount decimal(12,2) [not null, note: "MUHUZE's cut = amount * rate / 100"]
+  seller_earning decimal(12,2) [not null, note: 'amount - commission_amount -> future wallet']
+  currency varchar(8) [not null, default: 'RWF']
+  referral_eligible boolean [not null, default: false, note: 'placeholder for future referrals (from premium plan flag)']
   created_at timestamp [not null]
   updated_at timestamp [not null]
 }
