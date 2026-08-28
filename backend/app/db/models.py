@@ -17,6 +17,7 @@ from app.modules.auth.models import (  # noqa: F401
     VerificationCode,
 )
 from app.modules.categories.models import Category  # noqa: F401
+from app.modules.premium.models import PremiumPlan, SellerSubscription  # noqa: F401
 from app.modules.products.models import (  # noqa: F401
     Attribute,
     Brand,

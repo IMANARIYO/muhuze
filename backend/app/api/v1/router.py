@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.modules.auth.router import router as auth_router
 from app.modules.catalog.router import router as catalog_router
 from app.modules.categories.router import router as categories_router
+from app.modules.premium.router import router as premium_router
 from app.modules.products.router import (
     attributes_router,
     brands_router,
@@ -22,4 +23,5 @@ api_router.include_router(brands_router)
 api_router.include_router(attributes_router)
 api_router.include_router(products_router)
 api_router.include_router(listings_router)
+api_router.include_router(premium_router)
 api_router.include_router(catalog_router)

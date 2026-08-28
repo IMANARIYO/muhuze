@@ -7,8 +7,8 @@
 // it, what it references, its cardinality, and what constrains the relation.
 // Operators: `>` many-to-one, `-` one-to-one, `<` one-to-many.
 // Only the built modules are listed; orders/payments/wallets/withdrawals
-// /revenue/referrals/premium/seller_verification/notifications/admin are
-// planned, not yet built. UUID matches the real Postgres schema.
+// /revenue/referrals/seller_verification/notifications/admin are planned,
+// not yet built. UUID matches the real Postgres schema.
 
 // ── Catalog: categories ──────────────────────────────────────────────
 Table categories {
@@ -48,6 +48,56 @@ Table seller_documents {
   original_filename varchar(255)
   mime_type varchar(100) [not null]
   file_size int [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// ── Subscriptions: premium plans & seller subscriptions ──────────────
+// The commission MUHUZE keeps on a sale depends on whether the seller is
+// subscribed: a BASIC (unsubscribed) seller pays 12%, a PREMIUM
+// (subscribed) seller pays the plan's `commission_rate` (7%). Each plan
+// also spells out its pricing, duration, and every benefit it unlocks so
+// the ERD is self-documenting (no opaque credits/JSON blob).
+Table premium_plans {
+  id uuid [pk]
+  code varchar(40) [not null, unique, note: 'premium-monthly | premium-annual']
+  name varchar(50) [not null, note: 'Monthly | Annual']
+  description varchar(255) [note: 'seller-facing blurb shown on the plan card']
+  price decimal(12,2) [not null, note: '10 (monthly) / 100 (annual)']
+  currency varchar(8) [not null, default: 'USD', note: 'billing currency (USD)']
+  duration_days int [not null, note: '30 (monthly) / 365 (annual)']
+  // ── the rates ─────────────────────────────────────────────────────
+  commission_rate decimal(5,2) [not null, note: 'seller pays this %% of every sale while subscribed (7) — vs 12%% when not subscribed']
+  listing_limit int [not null, default: 0, note: 'max active listings (0 = unlimited for premium)']
+  // ── benefits the plan unlocks (each is a named boolean, not a blob) ─
+  premium_badge boolean [not null, default: false, note: 'shows the premium badge on the shop']
+  unlimited_listings boolean [not null, default: false, note: 'no listing cap while active']
+  priority_notifications boolean [not null, default: false]
+  early_promotion_access boolean [not null, default: false]
+  premium_only_promotions boolean [not null, default: false]
+  premium_discounts boolean [not null, default: false]
+  enhanced_favorites boolean [not null, default: false]
+  priority_support boolean [not null, default: false]
+  priority_service_handling boolean [not null, default: false]
+  referral_commission_eligible boolean [not null, default: false, note: 'may earn referral commission']
+  enhanced_visibility boolean [not null, default: false, note: 'boosted marketplace placement']
+  promotional_advantages boolean [not null, default: false]
+  advanced_analytics boolean [not null, default: false]
+  seller_verification_eligible boolean [not null, default: false, note: 'can request MUHUZE seller verification']
+  is_active boolean [not null, default: true, note: 'whether this plan can be purchased']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table seller_subscriptions {
+  id uuid [pk]
+  seller_id uuid [not null, ref: > sellers.id, note: 'a seller can hold many rows (purchase history); exactly one should be active at a time']
+  plan_id uuid [not null, ref: > premium_plans.id, note: 'which plan was bought']
+  status varchar(20) [not null, default: 'active', note: 'active | expired | cancelled']
+  commission_rate decimal(5,2) [not null, note: 'snapshot of the plan commission_rate at purchase time — so the rate applied stays auditable even if the plan later changes']
+  starts_at timestamp [not null]
+  expires_at timestamp [not null, note: 'starts_at + plan.duration_days; status flips to expired in the past']
+  cancelled_at timestamp [note: 'set when manually cancelled before expiry']
   created_at timestamp [not null]
   updated_at timestamp [not null]
 }

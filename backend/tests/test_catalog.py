@@ -222,8 +222,13 @@ async def test_catalog_returns_active_listing_with_shapes(
     assert response.status_code == 200
     data = response.json()["data"]
     assert isinstance(data, list)
-    item = data[0]
-    assert item["listing_id"] == ctx["listing_id"]
+    # The DB is shared and session-scoped, so other tests' listings are
+    # present too — locate this test's own listing instead of assuming it is
+    # the first row.
+    item = next(
+        (i for i in data if i["listing_id"] == ctx["listing_id"]), None
+    )
+    assert item is not None
     assert item["price"] == ctx["price"]
     assert item["stock"] == 5
     assert item["condition"] == "new"
@@ -366,8 +371,8 @@ async def test_filters_attribute_facet_when_category_attribute_configured(
     # logic can be exercised.
     db.add(
         CategoryAttribute(
-            category_id=ctx["category_id"],
-            attribute_id=ctx["attribute_id"],
+            category_id=uuid.UUID(ctx["category_id"]),
+            attribute_id=uuid.UUID(ctx["attribute_id"]),
             is_filterable=True,
         )
     )
@@ -428,8 +433,8 @@ async def test_catalog_filters_by_attribute_value(
     ctx = await publish_product_with_listing(client, db, monkeypatch)
     db.add(
         CategoryAttribute(
-            category_id=ctx["category_id"],
-            attribute_id=ctx["attribute_id"],
+            category_id=uuid.UUID(ctx["category_id"]),
+            attribute_id=uuid.UUID(ctx["attribute_id"]),
             is_filterable=True,
         )
     )
@@ -475,10 +480,26 @@ async def test_catalog_category_filters_include_subcategories(
 async def test_catalog_newest_sort(
     client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    await publish_product_with_listing(client, db, monkeypatch, price=500.0)
-    await publish_product_with_listing(client, db, monkeypatch, price=100.0)
+    older = await publish_product_with_listing(
+        client, db, monkeypatch, price=500.0
+    )
+    # The test schema uses func.now() (second precision) for created_at on
+    # SQLite, so two listings created within the same second tie and their
+    # relative order is undefined. Sleep just past the second boundary so the
+    # `newest` sort has a distinct timestamp to order by.
+    import asyncio
+
+    await asyncio.sleep(1.1)
+    newer = await publish_product_with_listing(
+        client, db, monkeypatch, price=100.0
+    )
 
     resp = await client.get("/api/v1/catalog", params={"sort": "newest"})
     data = resp.json()["data"]
-    # created_at desc -> the later listing is first; both prices present
-    assert {i["price"] for i in data} == {500.0, 100.0}
+    # The DB is shared and session-scoped, so other listings exist too — we
+    # only assert that the later-created listing sorts before the earlier
+    # one (created_at desc), and that both are present.
+    pos = {item["listing_id"]: i for i, item in enumerate(data)}
+    assert newer["listing_id"] in pos
+    assert older["listing_id"] in pos
+    assert pos[newer["listing_id"]] < pos[older["listing_id"]]

@@ -4,6 +4,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import hash_password
 from app.modules.auth.repository import AccountRepository, AuthorizationRepository
+from app.modules.premium.repository import PremiumPlanRepository
+from app.modules.premium.service import seed_default_premium_plans
 
 logger = get_logger(__name__)
 
@@ -73,5 +75,9 @@ async def seed_default_accounts(db: AsyncSession) -> None:
             role_names=["buyer", "seller"],
             label="test-seller",
         )
+
+    created_plans = await seed_default_premium_plans(PremiumPlanRepository(db))
+    if created_plans:
+        logger.info("Seeded %s default premium plan(s)", created_plans)
 
     await db.commit()

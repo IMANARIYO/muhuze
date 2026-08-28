@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.categories.models import Category
@@ -42,20 +42,23 @@ class CatalogRepository:
     ) -> list[uuid.UUID]:
         """The given category plus every descendant, via a recursive CTE.
         Used so a category filter also surfaces products in its subcategories
-        (Electronics -> Phones -> Smartphones). Works on both SQLite (tests)
-        and Postgres (prod)."""
-        cte = text(
-            """
-            WITH RECURSIVE subtree(id) AS (
-                SELECT id FROM categories WHERE id = :root
-                UNION ALL
-                SELECT c.id FROM categories c
-                JOIN subtree s ON c.parent_id = s.id
-            )
-            SELECT id FROM subtree
-            """
+        (Electronics -> Phones -> Smartphones).
+
+        Built from the ORM model (not raw text) so `Category.id`'s UUID type
+        drives both the bound root value and the read-back rows through the
+        dialect's bind/result processors — required because SQLite stores
+        UUIDs as their `hex` form while Postgres stores a native UUID."""
+        category_cte = (
+            select(Category.id).where(Category.id == category_id)
+            # .cte(recursive=True) marks the seed; the recursive term is added
+            # with .union_all() below, as SQLAlchemy 2.x requires.
+            .cte(name="subtree", recursive=True)
         )
-        result = await self.db.execute(cte, {"root": category_id})
+        category_cte = category_cte.union_all(
+            select(Category.id)
+            .join(category_cte, Category.parent_id == category_cte.c.id)
+        )
+        result = await self.db.execute(select(category_cte.c.id))
         return list(result.scalars().all())
 
     def _variant_ids_for_attribute_filters(
