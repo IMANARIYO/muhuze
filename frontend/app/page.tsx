@@ -3,7 +3,6 @@ import {
   ArrowRight,
   BadgeCheck,
   ChevronRight,
-  CircleHelp,
   Leaf,
   ShieldCheck,
   ShoppingBag,

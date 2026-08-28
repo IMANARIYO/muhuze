@@ -11,6 +11,7 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<AuthUser>;
   register: (input: RegisterInput) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   hasRole: (...roles: string[]) => boolean;
   hasPermission: (permission: string) => boolean;
 }
@@ -42,6 +43,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
+  async function refreshUser() {
+    const restored = await authService.restore();
+    setUser(restored);
+  }
+
   const value: AuthContextValue = {
     user,
     loading,
@@ -49,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     register,
     logout,
+    refreshUser,
     hasRole: (...roles) => Boolean(user && roles.some((role) => user.roles.includes(role))),
     hasPermission: (permission) => Boolean(user?.permissions.includes(permission)),
   };

@@ -20,7 +20,7 @@ export default function RegisterPage() {
     setError("");
     try {
       await register(form);
-      router.replace("/products");
+      router.replace("/dashboard");
     } catch (caught) {
       setError(authService.errorMessage(caught, "Unable to create your account."));
     } finally {

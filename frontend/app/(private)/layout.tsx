@@ -8,7 +8,13 @@ import { useAuth } from "@/app/context/auth-context";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [role, setRole] = useState<UserRole>("client");
+  // Default to the highest role the user actually has; falls back to client
+  const defaultRole = (): UserRole => {
+    if (user?.roles.includes("admin")) return "admin";
+    if (user?.roles.includes("seller")) return "seller";
+    return "client";
+  };
+  const [role, setRole] = useState<UserRole>(defaultRole);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const activeRole = user?.roles.includes(role === "client" ? "buyer" : role)

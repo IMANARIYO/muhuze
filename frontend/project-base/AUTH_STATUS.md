@@ -26,9 +26,13 @@ Muhuze is a multi-seller marketplace. Clients browse and purchase products, sell
 - `GET /api/v1/auth/me/authorization`: returns `roles` and `permissions`.
 - `GET /api/v1/users/me`: returns the authenticated account/profile.
 
+## Backend Integration Position
+
+Authentication foundation is integrated on the frontend. Seller and admin API work must follow the backend Swagger/docs contract. The mounted backend currently exposes auth, users, sellers, categories, brands, attributes, products, listings, and catalog. Orders, payments, revenue, wallets, withdrawals, referrals, and admin routers are not mounted yet.
+
 ## Current Position
 
-Authentication foundation is integrated on the frontend. The next work should connect dashboard sections to their own API service files, replace demo data with backend responses as those backend modules become available, and add role-specific route checks where required.
+The next frontend work is to add API-only services first, then connect seller product/listing workflows and admin review/curation screens. Existing dashboard demo data is not evidence that an API exists.
 
 ## Rules For Future AI Changes
 

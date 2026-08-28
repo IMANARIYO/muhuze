@@ -1,156 +1,40 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/app/_components/ui/card";
+import { ArrowLeft, Send } from "lucide-react";
 import { Button } from "@/app/_components/ui/button";
 import { Input } from "@/app/_components/ui/input";
-import type { ProductCategory } from "@/app/lib/types";
-
-const categories: ProductCategory[] = [
-  "Electronics",
-  "Clothing",
-  "Food & Beverage",
-  "Home & Garden",
-  "Health & Beauty",
-  "Sports",
-  "Books",
-  "Other",
-];
+import { adminService, type CategoryRecord } from "@/app/services/admin.service";
+import { productService } from "@/app/services/product.service";
 
 export default function NewProductPage() {
-  const router = useRouter();
-  const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    price: "",
-    category: "" as ProductCategory | "",
-    unit: "",
-    stock: "",
-    description: "",
-  });
+  const [categories, setCategories] = useState<CategoryRecord[]>([]);
+  const [form, setForm] = useState({ name: "", description: "", category_id: "" });
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitted(true);
-    setTimeout(() => router.push("/dashboard/products"), 1800);
-  };
+  useEffect(() => {
+    adminService.listCategories().then(setCategories).catch((caught) => setError(caught instanceof Error ? caught.message : "Categories could not be loaded."));
+  }, []);
 
-  if (submitted) {
-    return (
-      <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-4 py-24 text-center">
-        <div className="grid h-16 w-16 place-items-center rounded-full bg-[#e8f4ed] text-[var(--teal)]">
-          <CheckCircle size={32} />
-        </div>
-        <h2 className="text-xl font-extrabold text-[var(--ink)]">Product Listed!</h2>
-        <p className="text-sm text-[var(--muted)]">Your product is now visible to clients. Redirecting…</p>
-      </div>
-    );
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const product = await productService.create({ category_id: form.category_id, name: form.name, description: form.description });
+      await productService.submit(product.id);
+      setMessage("Product request submitted for admin review.");
+      setForm({ name: "", description: "", category_id: "" });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Product request failed.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/dashboard/products">
-          <button className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white text-[var(--muted)] hover:text-[var(--ink)]">
-            <ArrowLeft size={15} />
-          </button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-[var(--ink)]">Add New Product</h1>
-          <p className="text-sm text-[var(--muted)]">Fill in the details to list your product.</p>
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Product Details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[var(--ink)]">Product Name *</label>
-              <Input
-                required
-                placeholder="e.g. Organic Arabica Coffee"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[var(--ink)]">Price (USD) *</label>
-                <Input
-                  required
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={form.price}
-                  onChange={(e) => setForm({ ...form, price: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[var(--ink)]">Unit (optional)</label>
-                <Input
-                  placeholder="e.g. kg, piece, 100ml"
-                  value={form.unit}
-                  onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[var(--ink)]">Category *</label>
-                <select
-                  required
-                  value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value as ProductCategory })}
-                  className="flex h-9 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-[var(--ink)] outline-none focus:border-[var(--teal)] focus:ring-1 focus:ring-[var(--teal)]"
-                >
-                  <option value="">Select category</option>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[var(--ink)]">Stock Quantity *</label>
-                <Input
-                  required
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  value={form.stock}
-                  onChange={(e) => setForm({ ...form, stock: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[var(--ink)]">Description</label>
-              <textarea
-                rows={3}
-                placeholder="Describe your product…"
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                className="flex w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--ink)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--teal)] focus:ring-1 focus:ring-[var(--teal)]"
-              />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <Button type="submit">List Product</Button>
-              <Link href="/dashboard/products">
-                <Button variant="outline" type="button">Cancel</Button>
-              </Link>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <div className="mx-auto max-w-2xl space-y-6"><div className="flex items-center gap-3"><Link href="/dashboard/products" className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--line)] bg-white text-[var(--muted)]"><ArrowLeft size={16} /></Link><div><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#93a09a]">Seller workspace</p><h1 className="mt-1 text-2xl font-black tracking-[-.04em]">Request a catalog product</h1></div></div><div className="rounded-xl border border-[var(--line)] bg-white p-6"><p className="text-sm leading-6 text-[var(--muted)]">A product is the shared catalog definition. Price and stock are added later as a seller listing after approval.</p><form onSubmit={handleSubmit} className="mt-7 space-y-5"><label className="block text-sm font-semibold">Product name<Input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Organic Arabica Coffee" className="mt-2" /></label><label className="block text-sm font-semibold">Category<select required value={form.category_id} onChange={(event) => setForm({ ...form, category_id: event.target.value })} className="mt-2 flex h-10 w-full rounded-lg border border-[var(--line)] bg-white px-3 text-sm outline-none focus:border-[var(--teal)]"><option value="">Select a catalog category</option>{categories.filter((category) => category.status === "active").map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label className="block text-sm font-semibold">Description<textarea required rows={5} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Tell the admin and future buyers what this product is." className="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--teal)]" /></label>{message && <p className="rounded-lg bg-[#e8f4ed] px-3 py-2 text-sm text-[#2d7a5e]">{message}</p>}{error && <p role="alert" className="rounded-lg bg-[#fbe6e0] px-3 py-2 text-sm text-[#b74d3b]">{error}</p>}<Button type="submit" disabled={saving}><Send size={15} /> {saving ? "Submitting..." : "Submit for review"}</Button></form></div></div>;
 }

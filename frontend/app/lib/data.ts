@@ -1,5 +1,4 @@
 import type {
-  User,
   Product,
   Order,
   Payment,
@@ -9,23 +8,7 @@ import type {
 
 export const COMMISSION_RATE = 0.1; // 10%
 
-export const currentUser: User = {
-  id: "u1",
-  name: "Amina M.",
-  initials: "AM",
-  role: "client",
-  email: "amina@example.com",
-  joinedAt: "2024-01-15",
-};
-
-export const users: User[] = [
-  { id: "u1", name: "Amina M.", initials: "AM", role: "client", email: "amina@example.com", joinedAt: "2024-01-15" },
-  { id: "u2", name: "James Ochieng", initials: "JO", role: "seller", email: "james@example.com", joinedAt: "2024-02-10" },
-  { id: "u3", name: "Sarah Nkosi", initials: "SN", role: "seller", email: "sarah@example.com", joinedAt: "2024-03-05" },
-  { id: "u4", name: "Ibrahim K.", initials: "IK", role: "admin", email: "ibrahim@muhuze.com", joinedAt: "2023-12-01" },
-  { id: "u5", name: "Fatima Hassan", initials: "FH", role: "client", email: "fatima@example.com", joinedAt: "2024-04-20" },
-  { id: "u6", name: "David Mugisha", initials: "DM", role: "seller", email: "david@example.com", joinedAt: "2024-05-08" },
-];
+// NOTE: users array removed — users page now uses real API (GET /sellers + /auth/accounts)
 
 export const products: Product[] = [
   {
@@ -294,10 +277,17 @@ export const navItems: NavItem[] = [
   { label: "My Cart", icon: "ShoppingCart", href: "/dashboard/cart", count: 2, roles: ["client"] },
   { label: "My Orders", icon: "Package", href: "/dashboard/orders", roles: ["client"] },
   { label: "My Products", icon: "Store", href: "/dashboard/products", roles: ["seller"] },
+  { label: "My Listings", icon: "Tag", href: "/dashboard/listings", roles: ["seller"] },
+  { label: "Create Listing", icon: "Plus", href: "/dashboard/listings/new", roles: ["seller"] },
   { label: "Orders Received", icon: "ClipboardList", href: "/dashboard/orders", roles: ["seller"] },
   { label: "My Earnings", icon: "Wallet", href: "/dashboard/earnings", roles: ["seller"] },
+  { label: "Seller Profile", icon: "Store", href: "/dashboard/seller", roles: ["seller"] },
   { label: "All Orders", icon: "ClipboardList", href: "/dashboard/orders", roles: ["admin"] },
   { label: "Payments", icon: "CreditCard", href: "/dashboard/payments", count: 3, roles: ["admin"] },
+  { label: "Seller Review", icon: "UserCheck", href: "/dashboard/sellers", roles: ["admin"] },
+  { label: "Product Review", icon: "Package", href: "/dashboard/products", roles: ["admin"] },
+  { label: "Listing Review", icon: "Tag", href: "/dashboard/listings", roles: ["admin"] },
+  { label: "Catalog Setup", icon: "Layers", href: "/dashboard/catalog", roles: ["admin"] },
   { label: "Users", icon: "Users", href: "/dashboard/users", roles: ["admin"] },
 ];
 

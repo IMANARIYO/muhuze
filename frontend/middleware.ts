@@ -10,11 +10,8 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const role = request.cookies.get("muhuze.role")?.value;
-  if (role !== "seller" && role !== "admin") {
-    return NextResponse.redirect(new URL("/products", request.url));
-  }
-
+  // All authenticated roles (client/seller/admin) can access the dashboard.
+  // Role-based content filtering happens inside the dashboard components.
   return NextResponse.next();
 }
 
