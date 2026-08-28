@@ -77,6 +77,7 @@ repository.py    → data access only (SQLAlchemy queries), no business rules
 | [product-lifecycle.md](product-lifecycle.md) | Product status transitions and rules |
 | [creation-scenarios.md](creation-scenarios.md) | Admin-creates vs. seller-requests a product, side by side, with real request/response examples |
 | [seller-listing-flow.md](seller-listing-flow.md) | How a seller creates and manages listings |
+| [phone-example-end-to-end.md](phone-example-end-to-end.md) | Concrete marketplace walkthrough (Phone, Computer, Food) — roles, catalog setup, what the customer sees, and the commission/escrow math |
 | [roadmap.md](roadmap.md) | Implementation phases checklist |
 
 ## Tables
