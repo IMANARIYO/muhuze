@@ -582,7 +582,7 @@ function AdminOrders() {
                         <div>
                           <p className="font-semibold text-[var(--ink)]">Seller {line.seller_id.slice(0, 8)}</p>
                           <p className="text-[10px] text-[var(--muted)]">
-                            Rate {line.revenue_rate * 100}% · {line.status}
+                            Rate {line.revenue_rate}% · {line.status}
                           </p>
                         </div>
                         <div className="text-right">

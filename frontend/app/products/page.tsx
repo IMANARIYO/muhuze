@@ -14,7 +14,7 @@ import {
 } from "@/app/services/catalog.service";
 import { adminService, type CategoryRecord } from "@/app/services/admin.service";
 import { useAuth } from "@/app/context/auth-context";
-import { rwf } from "@/app/lib/utils";
+import { notifyCartUpdated, pickPrimaryImage, rwf } from "@/app/lib/utils";
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -28,7 +28,10 @@ export default function ProductsPage() {
 
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [categoryId, setCategoryId] = useState<string | undefined>(undefined);
+  const [categoryId, setCategoryId] = useState<string | undefined>(() => {
+    if (typeof window === "undefined") return undefined;
+    return new URLSearchParams(window.location.search).get("category") ?? undefined;
+  });
   const [brandId, setBrandId] = useState<string | undefined>(undefined);
   const [attrSelections, setAttrSelections] = useState<Record<string, string>>({});
   const [conditions, setConditions] = useState<string[]>([]);
@@ -99,6 +102,7 @@ export default function ProductsPage() {
     if (!user) { router.push("/login"); return; }
     try {
       await cartService.addItem(listingId);
+      notifyCartUpdated();
       setAddedId(listingId);
       setTimeout(() => setAddedId(null), 1600);
     } catch (caught) {
@@ -112,8 +116,8 @@ export default function ProductsPage() {
     [filtersData]
   );
 
-  const filterInput = (label: string, value: string, checked: boolean, onChange: (next: boolean) => void) => (
-    <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[var(--muted)]">
+  const filterInput = (label: string, value: string, checked: boolean, onChange: (next: boolean) => void, key?: string) => (
+    <label key={key} className="flex cursor-pointer items-center gap-2 text-[13px] text-[var(--muted)]">
       <input
         type="checkbox"
         checked={checked}
@@ -189,7 +193,7 @@ export default function ProductsPage() {
                   {(filtersData?.brands ?? []).map((brand) =>
                     filterInput(brand.name, brand.id, brandId === brand.id, (next) =>
                       setBrandId(next ? brand.id : undefined)
-                    )
+                    , brand.id)
                   )}
                 </div>
               </div>
@@ -204,7 +208,7 @@ export default function ProductsPage() {
                           ...prev,
                           [group.attribute_id]: next ? value : "",
                         }))
-                      )
+                      , value)
                     )}
                   </div>
                 </div>
@@ -216,7 +220,7 @@ export default function ProductsPage() {
                   {conditionOptions.map((condition) =>
                     filterInput(condition.replace("_", " "), condition, conditions.includes(condition), (next) =>
                       setConditions((prev) => next ? [...prev, condition] : prev.filter((c) => c !== condition))
-                    )
+                    , condition)
                   )}
                 </div>
               </div>
@@ -303,17 +307,26 @@ export default function ProductsPage() {
               ) : (
                 <div className="mt-7 grid grid-cols-2 gap-x-4 gap-y-9 sm:grid-cols-3 lg:grid-cols-4">
                   {items.map((item) => {
-                    const image = item.images.length ? item.images[0].url : null;
+                    const image = pickPrimaryImage(item.images);
                     const variantLabel = item.variant.attribute_values.map((v) => v.value).join(" · ");
                     return (
                       <Link href={`/products/${item.product.id}`} key={item.listing_id} className="group">
                         <div className="relative aspect-square overflow-hidden rounded-xl bg-[#e8f3ed]">
-                          {image ? (
-                            <div className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105" style={{ backgroundImage: `url(${image})` }} />
-                          ) : (
-                            <div className="grid h-full w-full place-items-center font-black tracking-tight text-[#9aa9a1]">
+                          {!image && (
+                            <div className="absolute inset-0 grid place-items-center font-black tracking-tight text-[#9aa9a1]">
                               {item.product.name.slice(0, 2).toUpperCase()}
                             </div>
+                          )}
+                          {image && (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={image}
+                                alt={item.product.name}
+                                className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                              />
+                            </>
                           )}
                           <span className="absolute left-2.5 top-2.5 rounded-full bg-white/90 px-2 py-1 text-[9px] font-bold text-[var(--ink)]">
                             {item.condition.replace("_", " ")}

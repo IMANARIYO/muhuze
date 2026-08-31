@@ -8,7 +8,7 @@ import { Button } from "@/app/_components/ui/button";
 import { cartService, type CartResponse } from "@/app/services/cart.service";
 import { orderService, type OrderDetailResponse, type ShippingInput } from "@/app/services/order.service";
 import { paymentService, type PaymentResponse } from "@/app/services/payment.service";
-import { rwf } from "@/app/lib/utils";
+import { notifyCartUpdated, rwf } from "@/app/lib/utils";
 
 type Step = "cart" | "delivery" | "payment" | "done";
 
@@ -50,7 +50,9 @@ export default function CartPage() {
     if (quantity < 1) return;
     setCart((prev) => prev ? { ...prev, items: prev.items.map((i) => (i.id === itemId ? { ...i, quantity } : i)) } : prev);
     try {
-      setCart(await cartService.updateQuantity(itemId, quantity));
+      const updated = await cartService.updateQuantity(itemId, quantity);
+      setCart(updated);
+      notifyCartUpdated();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Quantity could not be updated.");
     }
@@ -60,6 +62,7 @@ export default function CartPage() {
     try {
       await cartService.removeItem(itemId);
       setCart(await cartService.get());
+      notifyCartUpdated();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Item could not be removed.");
     }
@@ -90,6 +93,7 @@ export default function CartPage() {
       });
       setOrder(created);
       setCart({ items: [], item_count: 0, total: 0 });
+      notifyCartUpdated();
       setStep("payment");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Order could not be placed.");
