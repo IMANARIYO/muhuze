@@ -50,6 +50,17 @@ def _ensure_configured() -> None:
     )
 
 
+def is_configured() -> bool:
+    """True when Cloudinary credentials are present. Cheap — lets read paths
+    (e.g. the catalog) degrade gracefully instead of raising when storage
+    isn't wired up yet."""
+    return bool(
+        settings.cloudinary_cloud_name
+        and settings.cloudinary_api_key
+        and settings.cloudinary_api_secret
+    )
+
+
 def _validate(
     file: UploadFile,
     *,

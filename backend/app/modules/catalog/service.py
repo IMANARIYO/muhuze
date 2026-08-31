@@ -274,9 +274,14 @@ class CatalogService:
     async def _to_catalog_image(self, image) -> CatalogImage:
         from app.core import storage
 
-        url = await storage.get_public_url(
-            image.cloudinary_public_id, resource_type=image.cloudinary_resource_type
-        )
+        if storage.is_configured():
+            url = await storage.get_public_url(
+                image.cloudinary_public_id, resource_type=image.cloudinary_resource_type
+            )
+        else:
+            # Local dev without Cloudinary: serve a placeholder URL so the
+            # catalog renders instead of erroring with StorageNotConfiguredError.
+            url = f"https://placehold.co/600x400?text={image.cloudinary_public_id[:8]}"
         return CatalogImage(
             id=image.id,
             url=url,

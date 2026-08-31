@@ -10,6 +10,24 @@ Interactive docs (Swagger UI): `http://127.0.0.1:8000/docs`
 
 ---
 
+## 0. Demo data (so the catalog isn't empty)
+
+Before integrating, seed the database with demo products/variants/listings
+so `GET /api/v1/catalog` returns real data instead of `[]`:
+
+```bash
+cd backend
+uv run python -m app.scripts.seed_demo
+```
+
+This registers an approved **Seller** profile for the test-seller account
+(`seller@muhuze.com`), creates categories/brands/attributes, and publishes
+4 products with ~32 active listings through the normal API flow. It is
+**idempotent** — safe to re-run, it skips anything already created. It
+stubs Cloudinary, so it works with no storage credentials.
+
+---
+
 ## 1. The response envelope
 
 **Every** endpoint returns the same shape. Do not expect a raw array or
