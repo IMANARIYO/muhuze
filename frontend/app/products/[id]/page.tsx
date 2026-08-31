@@ -9,7 +9,7 @@ import { Header } from "@/app/_components/public/header";
 import { cartService } from "@/app/services/cart.service";
 import { catalogService, type CatalogProductDetail } from "@/app/services/catalog.service";
 import { useAuth } from "@/app/context/auth-context";
-import { rwf } from "@/app/lib/utils";
+import { notifyCartUpdated, rwf } from "@/app/lib/utils";
 
 export default function ProductDetailPage() {
   const params = useParams<{ id: string }>();
@@ -51,6 +51,7 @@ export default function ProductDetailPage() {
     if (!user) { router.push("/login"); return; }
     try {
       await cartService.addItem(offer.listing_id, quantity);
+      notifyCartUpdated();
       setAdded(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Item could not be added to your cart.");
@@ -81,14 +82,22 @@ export default function ProductDetailPage() {
           <div className="mt-8 grid gap-10 lg:grid-cols-2">
             {/* Gallery */}
             <div>
-              <div className="aspect-square overflow-hidden rounded-2xl bg-[#e8f3ed]">
+              <div className="relative aspect-square overflow-hidden rounded-2xl bg-[#e8f3ed]">
                 {product.images.length ? (
-                  <div
-                    className="h-full w-full bg-cover bg-center"
-                    style={{ backgroundImage: `url(${product.images[activeImage]?.url ?? product.images[0].url})` }}
-                  />
+                  <>
+                    <div className="absolute inset-0 grid h-full w-full place-items-center font-black tracking-tight text-[#9aa9a1]">
+                      {product.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={product.images[activeImage]?.url ?? product.images[0].url}
+                      alt={product.name}
+                      className="absolute inset-0 h-full w-full object-cover"
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                    />
+                  </>
                 ) : (
-                  <div className="grid h-full w-full place-items-center font-black tracking-tight text-[#9aa9a1]">
+                  <div className="absolute inset-0 grid h-full w-full place-items-center font-black tracking-tight text-[#9aa9a1]">
                     {product.name.slice(0, 2).toUpperCase()}
                   </div>
                 )}
@@ -224,7 +233,7 @@ export default function ProductDetailPage() {
 
                   <div className="mt-5 flex items-start gap-2 border-t border-[var(--line)] pt-4 text-[11px] text-[var(--muted)]">
                     <Truck size={15} className="mt-0.5 shrink-0" />
-                    <p>Delivery is arranged with the seller after you pay. Payment is made by mobile money (Airtel Money) outside the app.</p>
+                    <p>Delivery is arranged with the seller after you pay. Payment is outside the app.</p>
                   </div>
                 </div>
               ) : (

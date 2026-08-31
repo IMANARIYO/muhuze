@@ -112,7 +112,7 @@ export default function EarningsPage() {
                     return (
                       <tr key={e.id} className="hover:bg-[#f9fbf9]">
                         <td className="px-5 py-3 font-semibold text-[var(--ink)]">{rwf(e.amount)}</td>
-                        <td className="px-5 py-3 text-[var(--muted)]">{Math.round(e.revenue_rate * 100)}%</td>
+                        <td className="px-5 py-3 text-[var(--muted)]">{Math.round(e.revenue_rate)}%</td>
                         <td className="px-5 py-3 text-right text-[var(--coral)]">-{rwf(e.commission_amount)}</td>
                         <td className="px-5 py-3 text-right font-bold text-[var(--ink)]">{rwf(e.seller_earning)}</td>
                         <td className="px-5 py-3">

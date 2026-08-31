@@ -1,23 +1,24 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
-  BadgeCheck,
+  BookOpen,
   ChevronRight,
+  Cpu,
+  Home as HomeIcon,
   Leaf,
   ShieldCheck,
-  ShoppingBag,
+  Shirt,
+  Sparkles,
   Store,
+  type LucideIcon,
 } from "lucide-react";
 import { Footer } from "./_components/public/footer";
 import { Header } from "./_components/public/header";
 import { FeaturedProducts } from "./_components/public/featured-products";
-
-const categories = [
-  { label: "Food & drink", count: "24 sellers", color: "#e8f1df", icon: Leaf },
-  { label: "Clothing", count: "18 sellers", color: "#f8e2d6", icon: Store },
-  { label: "Home goods", count: "31 sellers", color: "#f4eccf", icon: ShoppingBag },
-  { label: "Health & beauty", count: "12 sellers", color: "#dcebed", icon: BadgeCheck },
-];
+import { adminService, type CategoryRecord } from "./services/admin.service";
 
 const steps = [
   { number: "01", title: "Find your next favorite", text: "Explore thoughtful products from independent sellers across Africa." },
@@ -25,7 +26,39 @@ const steps = [
   { number: "03", title: "Good commerce, shared", text: "We notify everyone at each step and release the seller payout fairly." },
 ];
 
+const palette = ["#e8f1df", "#f8e2d6", "#dcebed", "#f4eccf", "#e7e0f0", "#fbe8cf"];
+
+function categoryMeta(name: string, index: number): { icon: LucideIcon; color: string } {
+  const n = name.toLowerCase();
+  if (n.includes("samsung") || n.includes("techno") || n.includes("tech") || n.includes("phone") || n.includes("electronic")) return { icon: Cpu, color: "#dcebed" };
+  if (n.includes("food") || n.includes("drink") || n.includes("grocery")) return { icon: Leaf, color: "#e8f1df" };
+  if (n.includes("cloth") || n.includes("fashion") || n.includes("wear")) return { icon: Shirt, color: "#f8e2d6" };
+  if (n.includes("home") || n.includes("furniture")) return { icon: HomeIcon, color: "#f4eccf" };
+  if (n.includes("health") || n.includes("beauty")) return { icon: Sparkles, color: "#fbe0d8" };
+  if (n.includes("book")) return { icon: BookOpen, color: "#e7e0f0" };
+  return { icon: Store, color: palette[index % palette.length] };
+}
+
 export default function Home() {
+  const [categories, setCategories] = useState<CategoryRecord[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    adminService
+      .listCategories()
+      .then((list) => {
+        if (!cancelled) setCategories(list.filter((c) => !c.parent_id && c.status === "active"));
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCategories(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="min-h-screen overflow-hidden bg-[var(--paper)] text-[var(--ink)]">
       <Header />
@@ -80,7 +113,31 @@ export default function Home() {
         <section className="mx-auto max-w-6xl px-6 py-20 sm:py-28" aria-labelledby="categories-title">
           <div className="flex items-end justify-between gap-5"><div><p className="text-xs font-bold uppercase tracking-[.16em] text-[#5d8974]">Start somewhere good</p><h2 id="categories-title" className="mt-3 text-3xl font-black tracking-[-.04em] sm:text-4xl">Shop by category</h2></div><Link href="/products" className="hidden items-center gap-1 text-sm font-bold text-[#39836e] sm:flex">View all <ArrowRight size={15} /></Link></div>
           <div className="mt-9 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-            {categories.map(({ label, count, color, icon: Icon }) => <Link href="/products" key={label} className="group rounded-xl border border-[var(--line)] bg-white p-5 transition-all hover:-translate-y-1 hover:shadow-lg"><span className="grid h-12 w-12 place-items-center rounded-full" style={{ background: color }}><Icon size={22} strokeWidth={1.7} /></span><h3 className="mt-8 text-base font-bold">{label}</h3><p className="mt-1 text-xs text-[var(--muted)]">{count}</p><ArrowRight className="mt-5 text-[#9aa9a1] transition-transform group-hover:translate-x-1" size={16} /></Link>)}
+            {loadingCategories
+              ? Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="rounded-xl border border-[var(--line)] bg-white p-5">
+                    <div className="grid h-12 w-12 place-items-center rounded-full bg-[#f2f5f2] animate-pulse" />
+                    <div className="mt-8 h-4 w-2/3 rounded bg-[#f2f5f2] animate-pulse" />
+                    <div className="mt-2 h-3 w-1/2 rounded bg-[#f2f5f2] animate-pulse" />
+                  </div>
+                ))
+              : categories.length === 0 ? (
+                <div className="col-span-2 rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-sm text-[var(--muted)] md:col-span-4 md:text-center">
+                  Categories will appear here once the shop is set up.
+                </div>
+              ) : (
+                categories.map((category, index) => {
+                  const { icon: Icon, color } = categoryMeta(category.name, index);
+                  return (
+                    <Link href={`/products?category=${category.id}`} key={category.id} className="group rounded-xl border border-[var(--line)] bg-white p-5 transition-all hover:-translate-y-1 hover:shadow-lg">
+                      <span className="grid h-12 w-12 place-items-center rounded-full" style={{ background: color }}><Icon size={22} strokeWidth={1.7} /></span>
+                      <h3 className="mt-8 text-base font-bold capitalize">{category.name}</h3>
+                      <p className="mt-1 truncate text-xs text-[var(--muted)]">{category.description || "Explore the collection"}</p>
+                      <ArrowRight className="mt-5 text-[#9aa9a1] transition-transform group-hover:translate-x-1" size={16} />
+                    </Link>
+                  );
+                })
+              )}
           </div>
         </section>
 
