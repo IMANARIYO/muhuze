@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     super_admin_password: str | None = None
     test_seller_email: str | None = None
     test_seller_password: str | None = None
+    test_client_email: str | None = None
+    test_client_password: str | None = None
 
     # File storage (app/core/storage.py) — Cloudinary. Optional so the app
     # still starts without them configured; uploading without them raises

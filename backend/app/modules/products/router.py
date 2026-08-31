@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 
 from app.modules.auth.dependencies import get_current_account, require_role
 from app.modules.auth.models import Account
+from app.modules.auth.service import AuthorizationService
 from app.modules.products.controller import (
     AttributeController,
     BrandController,
@@ -13,6 +14,7 @@ from app.modules.products.controller import (
 from app.modules.products.dependencies import (
     ProductActor,
     get_attribute_controller,
+    get_authorization_service,
     get_brand_controller,
     get_listing_controller,
     get_product_controller,
@@ -394,10 +396,15 @@ async def list_my_listings(
     status_filter: str | None = Query(default=None, alias="status"),
     seller: Account = Depends(get_current_account),
     controller: ListingController = Depends(get_listing_controller),
+    authorization: AuthorizationService = Depends(get_authorization_service),
 ) -> APIResponse[list[SellerListingResponse]]:
-    """List the authenticated seller's listings, optionally filtered by
-    status."""
-    listings = await controller.list_my_listings(seller.id, status=status_filter)
+    """List the caller's own listings, optionally filtered by status.
+    Admins instead get every listing across all sellers (used for the
+    moderation queue, which the frontend also loads from /listings)."""
+    is_admin = await authorization.has_role(seller.id, "admin")
+    listings = await controller.list_my_listings(
+        seller.id, status_filter, is_admin=is_admin
+    )
     return success_response(data=listings, message="Listings retrieved successfully")
 
 

@@ -7,7 +7,7 @@ export default function ProfileActions() {
 
   function handleLogout() {
   logout();
-  navigate("/login");
+  navigate("/");
 }
   if (!currentUser) {
     return null;

@@ -31,6 +31,13 @@ class AccountRepository:
         result = await self.db.execute(select(Account).where(Account.id == account_id))
         return result.scalar_one_or_none()
 
+    async def list_all(self) -> list[Account]:
+        """Every account, newest first — the admin user directory."""
+        result = await self.db.execute(
+            select(Account).order_by(Account.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def create(
         self, *, email: str, phone: str | None, password_hash: str
     ) -> Account:
@@ -195,6 +202,23 @@ class AuthorizationRepository:
             .where(AccountRole.account_id == account_id)
         )
         return list(result.scalars().all())
+
+    async def get_role_names_for_accounts(
+        self, account_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[str]]:
+        """Role names grouped by account_id for a set of accounts — one
+        query for directory-style listing endpoints."""
+        if not account_ids:
+            return {}
+        result = await self.db.execute(
+            select(AccountRole.account_id, Role.name)
+            .join(Role, Role.id == AccountRole.role_id)
+            .where(AccountRole.account_id.in_(account_ids))
+        )
+        buckets: dict[uuid.UUID, list[str]] = {}
+        for account_id, role_name in result.all():
+            buckets.setdefault(account_id, []).append(role_name)
+        return buckets
 
     async def get_roles_for_account(self, account_id: uuid.UUID) -> list[Role]:
         """Full Role rows (not just names) for an admin viewing an

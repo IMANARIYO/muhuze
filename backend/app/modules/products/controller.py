@@ -341,9 +341,13 @@ class ListingController:
         self.images = ListingImageService(ListingImageRepository(db), self.listings)
 
     async def list_my_listings(
-        self, account_id: uuid.UUID, status: str | None
+        self, account_id: uuid.UUID, status: str | None, is_admin: bool = False
     ) -> list[SellerListingResponse]:
-        listings = await self.listings.list_by_seller(account_id, status=status)
+        listings = (
+            await self.listings.list_all(status=status)
+            if is_admin
+            else await self.listings.list_by_seller(account_id, status=status)
+        )
         return [SellerListingResponse.model_validate(l) for l in listings]
 
     async def get_listing(

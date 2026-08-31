@@ -66,6 +66,48 @@ PRODUCT_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_PRODUCT_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
+def _default_attributes() -> list[Attribute]:
+    """Seed data — the shared, admin-curated vocabulary sellers pick from
+    when adding variant attribute values (Color=Black, Storage=256GB, ...).
+    Mirrors the categories/brands seeded via the admin "Catalog setup" UI."""
+    definition = [
+        ("Color", "Color", "select", None),
+        ("Size", "Size", "select", None),
+        ("RAM", "RAM", "select", "GB"),
+        ("Storage", "Storage", "select", "GB"),
+        ("Material", "Material", "select", None),
+        ("Version", "Version", "select", None),
+        ("Weight", "Weight", "number", "kg"),
+    ]
+    return [
+        Attribute(
+            name=name,
+            slug=slug,
+            input_type=input_type,
+            unit=unit,
+        )
+        for name, slug, input_type, unit in definition
+    ]
+
+
+async def seed_default_attributes(repository: AttributeRepository) -> int:
+    """Idempotent: creates the default attributes if their slugs don't yet
+    exist. Never overwrites an admin's existing / edited attributes. Returns
+    how many attributes were created. Called at app startup — see
+    app/core/bootstrap.py."""
+    created = 0
+    for attribute in _default_attributes():
+        if await repository.get_by_slug(attribute.slug) is None:
+            await repository.create(
+                name=attribute.name,
+                slug=attribute.slug,
+                input_type=attribute.input_type,
+                unit=attribute.unit,
+            )
+            created += 1
+    return created
+
+
 def _check_product_write_access(
     product: Product, requester_seller_id: uuid.UUID | None
 ) -> None:
@@ -576,6 +618,11 @@ class SellerListingService:
     ) -> list[SellerListing]:
         seller = await self._ensure_active_seller(account_id)
         return await self.listings.list_by_seller(seller.id, status=status)
+
+    async def list_all(self, status: str | None) -> list[SellerListing]:
+        """Admin review: every listing across all sellers, optionally
+        filtered by status (e.g. `pending_review`)."""
+        return await self.listings.list_all(status=status)
 
     async def create(
         self,
