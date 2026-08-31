@@ -19,9 +19,16 @@ class CartItemResponse(BaseModel):
     id: uuid.UUID = Field(description="Cart line ID")
     listing_id: uuid.UUID = Field(description="The seller listing in the cart")
     seller_id: uuid.UUID = Field(description="The seller offering this line")
+    seller_name: str = Field(description="The seller's business/shop name")
+    product_id: uuid.UUID = Field(description="The product (SPU) this line belongs to")
     product_name: str = Field(description="Product name (snapshot for display)")
+    product_image: str | None = Field(
+        description="Primary product image URL (public, CDN-served) — null if the product has no images"
+    )
     variant_name: str | None = Field(description="Variant label, e.g. 128GB / Black")
     unit_price: float = Field(description="Current listing price at time of read")
+    condition: str = Field(description="Item condition: 'new', 'like_new', or 'used'")
+    stock: int = Field(description="Current available stock at time of read")
     quantity: int = Field(description="Quantity in cart")
     subtotal: float = Field(description="unit_price * quantity")
     created_at: datetime = Field(description="When added (UTC)")

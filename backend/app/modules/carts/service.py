@@ -6,12 +6,19 @@ from app.modules.carts.exceptions import CartItemNotFoundError
 from app.modules.carts.models import CartItem
 from app.modules.carts.repository import CartItemRepository
 from app.modules.carts.schemas import AddCartItemRequest, UpdateCartItemRequest
-from app.modules.products.models import Product, SellerListing, VariantAttributeValue
+from app.modules.products.models import (
+    Product,
+    ProductImage,
+    SellerListing,
+    VariantAttributeValue,
+)
 from app.modules.products.repository import (
+    ProductImageRepository,
     ProductRepository,
     ProductVariantRepository,
     SellerListingRepository,
 )
+from app.modules.sellers.repository import SellerRepository
 
 
 class CartService:
@@ -24,6 +31,8 @@ class CartService:
         self.listings = SellerListingRepository(db)
         self.variants = ProductVariantRepository(db)
         self.products = ProductRepository(db)
+        self.sellers = SellerRepository(db)
+        self.images = ProductImageRepository(db)
 
     async def add_item(
         self, account_id: uuid.UUID, payload: AddCartItemRequest
@@ -73,7 +82,14 @@ class CartService:
         listing_ids = [item.listing_id for item in items]
         listings = await self._listings_by_ids(listing_ids)
         variant_ids = [l.variant_id for l in listings if l is not None]
-        products = await self._products_by_variant_ids(variant_ids)
+        products_by_variant = await self._products_by_variant_ids(variant_ids)
+        product_ids = [
+            p.id for p in products_by_variant.values() if p is not None
+        ]
+        images_by_product = await self._primary_images_by_product(product_ids)
+        sellers_by_id = await self._sellers_by_ids(
+            list({l.seller_id for l in listings if l is not None})
+        )
         variant_labels = (
             await self.variants.list_attribute_values_for_variants(variant_ids)
             if variant_ids
@@ -90,7 +106,11 @@ class CartService:
             listing = next((l for l in listings if l and l.id == item.listing_id), None)
             if listing is None:
                 continue
-            product = products.get(listing.variant_id)
+            product = products_by_variant.get(listing.variant_id)
+            image = next(
+                iter(images_by_product.get(product.id, [])) if product else None
+            )
+            seller = sellers_by_id.get(listing.seller_id)
             unit_price = float(listing.price)
             subtotal = round(unit_price * item.quantity, 2)
             total = round(total + subtotal, 2)
@@ -100,9 +120,14 @@ class CartService:
                     "id": item.id,
                     "listing_id": item.listing_id,
                     "seller_id": listing.seller_id,
+                    "seller_name": seller.business_name if seller else listing_id_short(listing.id),
+                    "product_id": product.id if product else listing.variant_id,
                     "product_name": product.name if product else listing_id_short(listing.id),
+                    "product_image": await _image_url(image),
                     "variant_name": labels_by_variant.get(listing.variant_id),
                     "unit_price": unit_price,
+                    "condition": listing.condition,
+                    "stock": listing.stock,
                     "quantity": item.quantity,
                     "subtotal": subtotal,
                     "created_at": item.created_at,
@@ -140,6 +165,22 @@ class CartService:
             out[variant_id] = product
         return out
 
+    async def _sellers_by_ids(
+        self, seller_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, object]:
+        return await self.sellers.list_by_ids(seller_ids)
+
+    async def _primary_images_by_product(
+        self, product_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, ProductImage | None]:
+        images_by_product = await self.images.list_by_products(product_ids)
+        out: dict[uuid.UUID, ProductImage | None] = {}
+        for product_id, images in images_by_product.items():
+            out[product_id] = next(
+                (i for i in images if i.is_primary), images[0] if images else None
+            )
+        return out
+
 
 def _group_variant_labels(
     values: list[VariantAttributeValue],
@@ -156,3 +197,16 @@ def _group_variant_labels(
 
 def listing_id_short(listing_id: uuid.UUID) -> str:
     return str(listing_id)[:8]
+
+
+async def _image_url(image: ProductImage | None) -> str | None:
+    if image is None:
+        return None
+    from app.core import storage
+
+    if storage.is_configured():
+        return await storage.get_public_url(
+            image.cloudinary_public_id,
+            resource_type=image.cloudinary_resource_type,
+        )
+    return f"https://placehold.co/600x400?text={image.cloudinary_public_id[:8]}"

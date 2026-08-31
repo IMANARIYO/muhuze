@@ -6,6 +6,7 @@ from app.modules.catalog.schemas import (
     CatalogFilterOption,
     CatalogFilters,
     CatalogImage,
+    CatalogListingDetail,
     CatalogListingItem,
     CatalogOffer,
     CatalogProductDetail,
@@ -15,7 +16,7 @@ from app.modules.catalog.schemas import (
     CatalogVariantDetail,
     CatalogVariantRef,
 )
-from app.modules.products.exceptions import ProductNotFoundError
+from app.modules.products.exceptions import ProductNotFoundError, SellerListingNotFoundError
 from app.modules.products.models import (
     SellerListing,
     VariantAttributeValue,
@@ -191,6 +192,39 @@ class CatalogService:
                 await self._to_catalog_image(image) for image in images.get(product.id, [])
             ],
             variants=variants,
+        )
+
+    async def get_listing_detail(
+        self, listing_id: uuid.UUID
+    ) -> CatalogListingDetail:
+        """The customer's detail page for one *selected* storefront offer.
+
+        Returns full detail for the exact seller listing a customer clicked:
+        the canonical product, the specific variant with the admin-defined
+        attribute values (e.g. Color=Black, Storage=256GB), the selling
+        seller, all product images, and offer-level fields — price, stock,
+        condition, the seller's own SKU, and when it was listed. Only
+        `active` product/variant/listing rows are returned."""
+        listing = await self.catalog.get_listing_by_id(listing_id)
+        if listing is None or listing.status != _ACTIVE:
+            raise SellerListingNotFoundError()
+
+        variant = await self.catalog.variants.get_by_id(listing.variant_id)
+        if variant is None or variant.status != _ACTIVE:
+            raise SellerListingNotFoundError()
+
+        product = await self.catalog.products.get_by_id(variant.product_id)
+        if product is None or product.status != _ACTIVE:
+            raise SellerListingNotFoundError()
+
+        items = await self._assemble_listing_items([listing])
+        if not items:
+            raise SellerListingNotFoundError()
+        item = items[0]
+        return CatalogListingDetail(
+            **item.model_dump(),
+            seller_sku=listing.seller_sku,
+            created_at=listing.created_at,
         )
 
     async def _assemble_listing_items(

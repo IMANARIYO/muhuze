@@ -6,6 +6,7 @@ from app.modules.catalog.controller import CatalogController
 from app.modules.catalog.dependencies import get_catalog_controller
 from app.modules.catalog.schemas import (
     CatalogFilters,
+    CatalogListingDetail,
     CatalogListingItem,
     CatalogProductDetail,
 )
@@ -145,3 +146,22 @@ async def get_product_detail(
     """
     detail = await controller.get_product_detail(product_id)
     return success_response(data=detail, message="Product detail retrieved successfully")
+
+
+@router.get("/listings/{listing_id}")
+async def get_listing_detail(
+    listing_id: uuid.UUID,
+    controller: CatalogController = Depends(get_catalog_controller),
+) -> APIResponse[CatalogListingDetail]:
+    """Get the customer's detail page for one *selected* seller listing.
+
+    This is the endpoint a storefront card links to. Unlike `/products/{id}`
+    (all variants + every seller), this returns the exact seller offer the
+    customer clicked: the product, the variant with its admin-defined
+    attribute values, the selling seller, all images, price/stock/condition,
+    the seller's own SKU, and when it was listed. Only active rows are ever
+    returned; anything archived/suspended/rejected is a 404. Public — no
+    auth required.
+    """
+    detail = await controller.get_listing_detail(listing_id)
+    return success_response(data=detail, message="Listing detail retrieved successfully")

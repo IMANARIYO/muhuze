@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.catalog.repository import CatalogRepository
 from app.modules.catalog.schemas import (
     CatalogFilters,
+    CatalogListingDetail,
     CatalogListingItem,
     CatalogProductDetail,
 )
@@ -50,3 +51,8 @@ class CatalogController:
         self, product_id: uuid.UUID
     ) -> CatalogProductDetail:
         return await self.catalog.get_product_detail(product_id)
+
+    async def get_listing_detail(
+        self, listing_id: uuid.UUID
+    ) -> CatalogListingDetail:
+        return await self.catalog.get_listing_detail(listing_id)

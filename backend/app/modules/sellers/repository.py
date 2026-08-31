@@ -37,6 +37,14 @@ class SellerRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def list_by_ids(self, seller_ids: list[uuid.UUID]) -> dict[uuid.UUID, Seller]:
+        if not seller_ids:
+            return {}
+        result = await self.db.execute(
+            select(Seller).where(Seller.id.in_(seller_ids))
+        )
+        return {s.id: s for s in result.scalars().all()}
+
     async def create(
         self,
         *,

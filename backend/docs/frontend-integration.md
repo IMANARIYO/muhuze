@@ -207,6 +207,50 @@ seller offers them:
 When the buyer picks a variant **and** a seller, the corresponding
 `offers[].listing_id` is what you add to the cart.
 
+### Selected-listing detail — `GET /api/v1/catalog/listings/{listing_id}`
+
+This is the endpoint a **storefront card links to** for the customer's
+detail page of the exact offer they clicked. It returns the full detail of
+one selected seller listing — the canonical product, the specific variant
+with the admin-defined attribute values (e.g. `Color=Black`,
+`Storage=256GB`), the selling seller, all images, and the offer-level
+fields:
+
+```json
+{
+  "listing_id": "uuid",
+  "price": 549.99,
+  "stock": 12,
+  "condition": "new",
+  "seller_sku": "IP15-256-BLK",
+  "created_at": "2026-01-01T00:00:00Z",
+  "product": {
+    "id": "uuid", "name": "iPhone 15 Pro", "slug": "iphone-15-pro",
+    "description": "...", "category_id": "uuid"
+  },
+  "variant": {
+    "id": "uuid", "sku_code": "IP15-256-BLK",
+    "attribute_values": [
+      { "attribute_id": "uuid", "attribute_name": "Storage", "value": "256GB" },
+      { "attribute_id": "uuid", "attribute_name": "Color", "value": "Black" }
+    ]
+  },
+  "seller": { "id": "uuid", "business_name": "TechHub Rwanda" },
+  "images": [
+    { "id": "uuid", "url": "https://res.cloudinary.com/...", "is_primary": true, "sort_order": 0 }
+  ]
+}
+```
+
+Use the **`variant.attribute_values`** here to render the spec badges on the
+detail page — these are exactly the attributes the admin configured for the
+category and the seller set values against. `listing_id` (also returned here)
+is what you pass to the cart.
+
+> Only `active` product/variant/listing are ever returned — if the offer was
+> archived, suspended, or rejected, this returns a `404`, and the UI should
+> treat that as "no longer available."
+
 ### Dynamic filter sidebar — `GET /api/v1/catalog/filters`
 
 Returns the filter groups to render (brands, attributes with live values,
@@ -249,23 +293,38 @@ Returns the caller's cart:
 
 ```json
 {
-  "items": [
-    {
-      "id": "cart-line-uuid",
-      "listing_id": "9f7c...-uuid",
-      "seller_id": "uuid",
-      "product_name": "iPhone 15 Pro",
-      "variant_name": "256GB / Black",
-      "unit_price": 549.99,
-      "quantity": 1,
-      "subtotal": 549.99,
-      "created_at": "...", "updated_at": "..."
-    }
-  ],
-  "item_count": 1,
-  "total": 549.99
+  "status": "success",
+  "message": "Cart retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": "cart-line-uuid",
+        "listing_id": "9f7c...-uuid",
+        "seller_id": "uuid",
+        "seller_name": "TechHub Rwanda",
+        "product_id": "uuid",
+        "product_name": "iPhone 15 Pro",
+        "product_image": "https://res.cloudinary.com/...",
+        "variant_name": "256GB / Black",
+        "unit_price": 549.99,
+        "condition": "new",
+        "stock": 12,
+        "quantity": 1,
+        "subtotal": 549.99,
+        "created_at": "...", "updated_at": "..."
+      }
+    ],
+    "item_count": 1,
+    "total": 549.99
+  }
 }
 ```
+
+Each cart line mirrors the catalog card: `product_name`, `product_image`
+(prefer this for the thumbnail next to the line), `variant_name`, and
+`seller_name` (shop name). `condition`, `unit_price`, and `stock` are the
+**current** listing values at read time — the *frozen* ones at purchase come
+later in the order. `product_image` is `null` when the product has no images.
 
 `total` is the **gross** sum of subtotals (before delivery fees or taxes —
 those come later at checkout).
@@ -287,7 +346,10 @@ the `listing_id`.
 1. Buyer browses:
      GET /api/v1/catalog                  → list of cards (public)
    (optional) GET /api/v1/catalog/filters → filter sidebar
-   (detail)   GET /api/v1/catalog/products/{id}
+   (detail)   GET /api/v1/catalog/products/{id}     → variants + all sellers
+   (on-card)  GET /api/v1/catalog/listings/{listing_id} → full detail of the
+              exact offer the customer clicked (product, variant attributes,
+              seller, images, price/stock/condition)
 
 2. Buyer adds to cart:
      guaranteed logged in?  no  →  redirect to login

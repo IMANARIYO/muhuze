@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -69,6 +70,18 @@ class CatalogListingItem(BaseModel):
     images: list[CatalogImage] = Field(
         description="Canonical product images (public, CDN-served)"
     )
+
+
+class CatalogListingDetail(CatalogListingItem):
+    """Full detail for a single selected listing — what a customer's detail
+    page shows after clicking a specific storefront offer: the product, the
+    exact variant + its attributes, the seller, all images, and offer-level
+    fields (price/stock/condition) plus the seller's SKU and listing date."""
+
+    seller_sku: str | None = Field(
+        description="The seller's own SKU for this offer (if set)"
+    )
+    created_at: datetime = Field(description="When this offer was listed (UTC)")
 
 
 class CatalogOffer(BaseModel):

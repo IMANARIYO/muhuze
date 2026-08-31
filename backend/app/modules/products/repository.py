@@ -299,6 +299,21 @@ class ProductImageRepository:
         )
         return list(result.scalars().all())
 
+    async def list_by_products(
+        self, product_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[ProductImage]]:
+        if not product_ids:
+            return {}
+        result = await self.db.execute(
+            select(ProductImage)
+            .where(ProductImage.product_id.in_(product_ids))
+            .order_by(ProductImage.sort_order)
+        )
+        grouped: dict[uuid.UUID, list[ProductImage]] = {}
+        for image in result.scalars().all():
+            grouped.setdefault(image.product_id, []).append(image)
+        return grouped
+
     async def create(
         self,
         *,

@@ -35,6 +35,14 @@ class CatalogRepository:
         self.products = ProductRepository(db)
         self.variants = ProductVariantRepository(db)
 
+    # --- single listing lookup ------------------------------------------
+
+    async def get_listing_by_id(self, listing_id: uuid.UUID) -> SellerListing | None:
+        result = await self.db.execute(
+            select(SellerListing).where(SellerListing.id == listing_id)
+        )
+        return result.scalar_one_or_none()
+
     # --- active listing search ------------------------------------------
 
     async def get_category_ids_including_descendants(
