@@ -103,7 +103,15 @@ class CatalogRepository:
         in_stock: bool,
         filters: dict | None,
     ) -> list[SellerListing]:
-        query = select(SellerListing).where(SellerListing.status == _ACTIVE)
+        query = (
+            select(SellerListing)
+            .where(SellerListing.status == _ACTIVE)
+            .where(
+                SellerListing.seller_id.in_(
+                    select(Seller.id).where(Seller.status == _ACTIVE)
+                )
+            )
+        )
 
         product_ids: list[uuid.UUID] | None = None
         product_query = select(Product.id)
@@ -209,6 +217,9 @@ class CatalogRepository:
         listing_variant_ids = select(SellerListing.variant_id).where(
             SellerListing.variant_id.in_(variant_ids),
             SellerListing.status == _ACTIVE,
+            SellerListing.seller_id.in_(
+                select(Seller.id).where(Seller.status == _ACTIVE)
+            ),
         )
         result = await self.db.execute(
             select(Brand).where(
@@ -282,6 +293,9 @@ class CatalogRepository:
         listing_ids = select(SellerListing.id).where(
             SellerListing.variant_id.in_(variant_ids),
             SellerListing.status == _ACTIVE,
+            SellerListing.seller_id.in_(
+                select(Seller.id).where(Seller.status == _ACTIVE)
+            ),
         )
         result = await self.db.execute(
             select(
@@ -306,6 +320,9 @@ class CatalogRepository:
             .where(
                 SellerListing.variant_id.in_(variant_ids),
                 SellerListing.status == _ACTIVE,
+                SellerListing.seller_id.in_(
+                    select(Seller.id).where(Seller.status == _ACTIVE)
+                ),
             )
             .distinct()
             .order_by(SellerListing.condition)
@@ -410,6 +427,11 @@ class CatalogRepository:
             .where(
                 SellerListing.variant_id.in_(variant_ids),
                 SellerListing.status == _ACTIVE,
+            )
+            .where(
+                SellerListing.seller_id.in_(
+                    select(Seller.id).where(Seller.status == _ACTIVE)
+                )
             )
             .order_by(SellerListing.price.asc())
         )

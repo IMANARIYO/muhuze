@@ -22,8 +22,7 @@ const docLabels: Record<SellerDocument["document_type"], string> = {
 };
 
 function hasRequiredDocs(docs: SellerDocument[]): boolean {
-  const types = new Set(docs.map((d) => d.document_type));
-  return (types.has("national_id_front") && types.has("national_id_back")) || types.has("passport") || types.has("driving_license");
+  return docs.length > 0;
 }
 
 const statusMeta: Record<SellerProfile["status"], { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -211,7 +210,7 @@ export default function SellerPage() {
             <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#e8f4ed] text-[var(--teal)]"><FileText size={16} /></div>
             <div>
               <h2 className="font-bold">Identity documents</h2>
-              <p className="text-xs text-[var(--muted)]">Upload one of: passport, driving license, or both sides of a national ID</p>
+              <p className="text-xs text-[var(--muted)]">Upload at least one identity document (national ID, passport, or driving license)</p>
             </div>
             {hasRequiredDocs(documents) && <CheckCircle2 size={18} className="ml-auto text-[var(--teal)]" />}
           </div>

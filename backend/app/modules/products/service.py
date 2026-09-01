@@ -1,3 +1,4 @@
+import re
 import uuid
 
 from fastapi import UploadFile
@@ -64,6 +65,39 @@ from app.shared.utils.slugify import slugify
 
 PRODUCT_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_PRODUCT_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+_SKU_MAX_LENGTH = 50
+_SKU_VALUE_MAX = 8
+_SKU_SEP = "-"
+
+
+def _sanitize_code(text: str) -> str:
+    """Normalize a value/word into an uppercase alphanumeric token safe for
+    an SKU: 'Black' -> 'BLACK', '256GB' -> '256GB', '1 TB' -> '1TB'."""
+    return re.sub(r"[^A-Za-z0-9]", "", text).upper()
+
+
+def _build_sku(product_slug: str, attribute_values: list[tuple[uuid.UUID, str]]) -> str:
+    """Generate a readable, deterministic SKU when the caller doesn't supply
+    one: <SLUG>-<VALUE>-<VALUE>... e.g. 'samsung-galaxy-a15' + Black/256GB
+    -> 'SAMSUNG-GALAXY-A15-BLACK-256GB'. The slug is uppercased word-by-word
+    (no mid-word cuts) and each attribute value is collapsed to an uppercase
+    token; trailing tokens are dropped (never the slug words) so the whole
+    thing fits the 50-char column."""
+    slug_words = [
+        word for word in (_sanitize_code(w) for w in product_slug.split("-")) if word
+    ]
+    value_tokens = []
+    for _attribute_id, value in attribute_values:
+        code = _sanitize_code(value)[:_SKU_VALUE_MAX]
+        if code and code not in slug_words:
+            value_tokens.append(code)
+
+    for keep_values in range(len(value_tokens) + 1, -1, -1):
+        candidate = _SKU_SEP.join(slug_words + value_tokens[:keep_values])
+        if len(candidate) <= _SKU_MAX_LENGTH:
+            return candidate
+    return _SKU_SEP.join(slug_words)[:_SKU_MAX_LENGTH]
 
 
 def _default_attributes() -> list[Attribute]:
@@ -433,7 +467,10 @@ class ProductVariantService:
             product_id, attribute_values, exclude_variant_id=None
         )
 
-        variant = await self.variants.create(product_id=product_id, sku_code=sku_code)
+        effective_sku = sku_code or _build_sku(product.slug, attribute_values)
+        variant = await self.variants.create(
+            product_id=product_id, sku_code=effective_sku
+        )
         for attribute_id, value in attribute_values:
             await self.variants.add_attribute_value(
                 variant_id=variant.id, attribute_id=attribute_id, value=value

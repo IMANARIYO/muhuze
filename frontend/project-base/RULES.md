@@ -96,7 +96,7 @@ The live Swagger UI is at `http://127.0.0.1:8000/docs` (dev). The OpenAPI JSON i
 - **Seller status gate**: `Seller.status === "active"` is required to create products and listings. The `seller` RBAC role alone is not sufficient — always check seller status from `GET /sellers/me`.
 - **Product ownership**: while `draft`/`pending_review`/`rejected`, only the creating seller or admin can edit. Once `active`, any active seller can add variants/images.
 - **Listing states**: `draft → pending_review → active | rejected`. Additional: `suspended`, `out_of_stock`, `archived`. Price/stock can be updated on active listings via dedicated PATCH endpoints without re-review.
-- **Document upload**: multipart/form-data with fields `document_type` and `file`. Required combination before seller submit: both `national_id_front` + `national_id_back`, OR `passport` alone, OR `driving_license` alone.
+- **Document upload**: multipart/form-data with fields `document_type` and `file`. At least one uploaded document is required before seller submit; any `document_type` value counts.
 - **Admin actions on sellers**: `POST /sellers/{id}/approve|reject|suspend|reactivate` — each enforces the correct source state (409 on wrong state).
 - **Admin actions on products**: `POST /products/{id}/approve|reject|archive`.
 - **Admin actions on listings**: `POST /listings/{id}/approve|reject|suspend|reactivate`.

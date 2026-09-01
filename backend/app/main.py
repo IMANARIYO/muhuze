@@ -6,6 +6,8 @@ from fastapi import FastAPI
 from app.api.v1.router import api_router
 from app.core.bootstrap import seed_default_accounts
 from app.core.config import settings
+from app.core.permissions_sync import sync_permissions
+from app.db.permissions import ALL_PERMISSIONS
 from app.core.database import AsyncSessionLocal
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestIDMiddleware
@@ -20,6 +22,18 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     async with AsyncSessionLocal() as db:
         await seed_default_accounts(db)
+        # Idempotent: inserts/updates the permission catalog defined in code,
+        # never stale-removes. Safe to run on every start — sync_permissions
+        # does not touch anything already present, and the catalog is the
+        # source of truth for which permissions exist.
+        result = await sync_permissions(db, ALL_PERMISSIONS)
+        if result.inserted or result.updated:
+            logger.info(
+                "Synced permissions at startup: +%d inserted, ~%d updated",
+                len(result.inserted),
+                len(result.updated),
+            )
+        await db.commit()
     yield
 
 

@@ -9,7 +9,7 @@ import {
 import { Button } from "@/app/_components/ui/button";
 import { Input } from "@/app/_components/ui/input";
 import { useAuth } from "@/app/context/auth-context";
-import { adminService } from "@/app/services/admin.service";
+import { adminService, type AttributeRecord } from "@/app/services/admin.service";
 import { productService, type ProductRecord, type VariantRecord } from "@/app/services/product.service";
 
 interface ProductImage { id: string; product_id: string; url: string; is_primary: boolean; sort_order: number; created_at: string; }
@@ -172,6 +172,7 @@ export default function ProductsPage() {
   const [variants, setVariants] = useState<Record<string, VariantRecord[]>>({});
   const [showAddVariant, setShowAddVariant] = useState<string | null>(null);
   const [showImages, setShowImages] = useState<string | null>(null);
+  const [attrMap, setAttrMap] = useState<Record<string, AttributeRecord>>({});
 
   // admin modals
   const [rejectTarget, setRejectTarget] = useState<ProductRecord | null>(null);
@@ -227,6 +228,14 @@ export default function ProductsPage() {
         const v = await productService.listVariants(product.id);
         setVariants((prev) => ({ ...prev, [product.id]: v }));
       } catch { setVariants((prev) => ({ ...prev, [product.id]: [] })); }
+    }
+    if (Object.keys(attrMap).length === 0) {
+      try {
+        const list = await adminService.listAttributes();
+        const map: Record<string, AttributeRecord> = {};
+        for (const a of list) map[a.id] = a;
+        setAttrMap(map);
+      } catch { /* attribute names are a nice-to-have */ }
     }
   }
 
@@ -451,32 +460,66 @@ export default function ProductsPage() {
 
                   {/* Variants panel */}
                   {isExpanded && (
-                    <div className="border-t border-[var(--line)] p-5">
-                      <p className="mb-3 text-xs font-bold text-[var(--ink)]">Variants (SKUs)</p>
+                    <div className="border-t border-[var(--line)] bg-[#fbfdfb] px-5 py-5">
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Package size={15} className="text-[var(--teal)]" />
+                          <p className="text-sm font-bold text-[var(--ink)]">Variants (SKUs)</p>
+                          {productVariants && productVariants.length > 0 && (
+                            <span className="rounded-full bg-[#e8f4ed] px-2 py-0.5 text-[10px] font-bold text-[#2d7a5e]">
+                              {productVariants.length}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                       {!productVariants ? (
                         <p className="text-xs text-[var(--muted)]">Loading variants...</p>
                       ) : productVariants.length === 0 ? (
-                        <p className="text-xs text-[var(--muted)]">No variants yet.</p>
+                        <div className="rounded-xl border border-dashed border-[var(--line)] bg-white px-6 py-8 text-center">
+                          <Package size={22} className="mx-auto text-[var(--muted)]" />
+                          <p className="mt-3 text-xs font-semibold text-[var(--ink)]">No variants yet</p>
+                          <p className="mt-1 text-xs text-[var(--muted)]">Add a variant to offer this product in different configurations.</p>
+                        </div>
                       ) : (
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {productVariants.map((v) => (
-                            <div key={v.id} className="rounded-lg border border-[var(--line)] bg-[#f9fbf9] px-4 py-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="font-mono text-[10px] text-[var(--muted)]">{v.id.slice(0, 8)}</p>
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${v.status === "active" ? "bg-[#e8f4ed] text-[#2d7a5e]" : "bg-[#f2f5f2] text-[#7e8b84]"}`}>
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {productVariants.map((v, idx) => (
+                            <div key={v.id} className="overflow-hidden rounded-xl border border-[var(--line)] bg-white shadow-sm">
+                              <div className="flex items-center justify-between gap-2 border-b border-[var(--line)] bg-[#f6f9f7] px-4 py-2.5">
+                                <p className="text-xs font-bold text-[var(--ink)]">Variant {idx + 1}</p>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${v.status === "active" ? "bg-[#e8f4ed] text-[#2d7a5e]" : "bg-[#f2f5f2] text-[#7e8b84]"}`}>
                                   {v.status}
                                 </span>
                               </div>
-                              {v.sku_code && <p className="mt-1 text-xs font-bold text-[var(--ink)]">SKU: {v.sku_code}</p>}
-                              {v.attribute_values.length > 0 && (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  {v.attribute_values.map((av) => (
-                                    <span key={av.attribute_id} className="rounded-full bg-white border border-[var(--line)] px-2 py-0.5 text-[10px] text-[var(--muted)]">
-                                      {av.value}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
+                              <div className="px-4 py-3">
+                                {v.sku_code ? (
+                                  <div className="mb-3 flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">SKU</span>
+                                    <span className="font-mono text-xs font-semibold text-[var(--ink)]">{v.sku_code}</span>
+                                  </div>
+                                ) : (
+                                  <div className="mb-3 flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">SKU</span>
+                                    <span className="text-xs text-[var(--muted)]">—</span>
+                                  </div>
+                                )}
+                                {v.attribute_values.length > 0 ? (
+                                  <dl className="grid grid-cols-1 gap-y-1.5">
+                                    {v.attribute_values.map((av) => {
+                                      const attr = attrMap[av.attribute_id];
+                                      const label = attr?.name ?? "Attribute";
+                                      const unit = attr?.unit ? ` ${attr.unit}` : "";
+                                      return (
+                                        <div key={av.attribute_id} className="flex items-center justify-between gap-3 rounded-lg bg-[#fafcfb] px-3 py-1.5">
+                                          <dt className="text-[11px] font-semibold text-[var(--muted)]">{label}</dt>
+                                          <dd className="text-xs font-bold text-[var(--ink)]">{av.value}{unit}</dd>
+                                        </div>
+                                      );
+                                    })}
+                                  </dl>
+                                ) : (
+                                  <p className="text-xs text-[var(--muted)]">No attribute values</p>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>

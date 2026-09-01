@@ -18,7 +18,7 @@
 
 - [x] `SellerDocument` model + migration (Cloudinary-backed, private/authenticated delivery)
 - [x] `SellerDocumentService` — upload/list/delete, reusing `app/core/storage.py`
-- [x] Required-documents validation (national ID front+back, OR passport, OR driving license)
+- [x] Required-documents validation (any uploaded document is enough to submit)
 - [x] Content-type + size validation before any network call
 - [x] Re-upload replaces existing document of the same type (old Cloudinary asset deleted, best-effort)
 - [x] Failure compensation: Cloudinary succeeds + DB fails → uploaded asset is cleaned up (tested by deliberately breaking the DB write)

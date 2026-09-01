@@ -7,16 +7,13 @@ calls `storage.upload_file`/`delete_file`/`get_signed_url`.
 
 ## What's required to submit
 
-`SellerService.submit_for_review` requires **one** of:
+`SellerService.submit_for_review` requires **at least one** uploaded
+document — any document, regardless of the `document_type` value it was
+labelled with. The presence of any row is enough.
 
-- both `national_id_front` **and** `national_id_back`, or
-- `passport` alone, or
-- `driving_license` alone.
-
-Missing all three combinations raises `MissingRequiredDocumentsError`
-(422). This check (`_has_required_documents` in `service.py`) is
-independent of upload — a seller can upload extra/unrelated document
-types and still fail this check if none of the three sets is complete.
+Uploading no documents at all raises `MissingRequiredDocumentsError`
+(422). The check (`_has_required_documents` in `service.py`) is
+independent of upload contents: it only looks at whether any row exists.
 
 ## Validation
 

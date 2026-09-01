@@ -21,7 +21,6 @@ from app.modules.sellers.exceptions import (
 from app.modules.sellers.models import (
     Seller,
     SellerDocument,
-    SellerDocumentType,
     SellerStatus,
 )
 from app.modules.sellers.repository import SellerDocumentRepository, SellerRepository
@@ -29,19 +28,11 @@ from app.modules.sellers.repository import SellerDocumentRepository, SellerRepos
 DOCUMENT_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 
-# A seller must prove identity one of these ways: both sides of a national
-# ID, or a single-document passport/driving license.
-_IDENTITY_DOCUMENT_SETS: tuple[frozenset[str], ...] = (
-    frozenset(
-        {SellerDocumentType.NATIONAL_ID_FRONT, SellerDocumentType.NATIONAL_ID_BACK}
-    ),
-    frozenset({SellerDocumentType.PASSPORT}),
-    frozenset({SellerDocumentType.DRIVING_LICENSE}),
-)
-
-
+# A seller is considered to have provided identity once at least one
+# document row exists — any uploaded document counts, regardless of the
+# document_type value it was labelled with.
 def _has_required_documents(document_types: set[str]) -> bool:
-    return any(required <= document_types for required in _IDENTITY_DOCUMENT_SETS)
+    return len(document_types) > 0
 
 
 class SellerService:
