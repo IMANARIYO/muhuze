@@ -147,6 +147,19 @@ export default function CartPage() {
     }
   }
 
+  async function refreshPayment() {
+    if (!payment) return;
+    setWorking(true);
+    setError("");
+    try {
+      setPayment(await paymentService.get(payment.id));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Payment status could not be refreshed.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
   if (loading) {
     return <div className="mx-auto max-w-4xl p-10 text-center text-sm text-[var(--muted)]">Loading your cart…</div>;
   }
@@ -231,6 +244,9 @@ export default function CartPage() {
               <Button className="w-full" onClick={confirmPaid} disabled={working}>
                 <CheckCircle size={15} /> I&apos;ve completed the payment
               </Button>
+              <button onClick={refreshPayment} disabled={working} className="w-full text-xs font-semibold text-[var(--teal)] hover:underline">
+                {working ? "Refreshing…" : "Refresh payment status"}
+              </button>
               <button onClick={confirmFailed} disabled={working} className="w-full text-xs font-semibold text-[var(--coral)] hover:underline">
                 Payment didn&apos;t go through
               </button>

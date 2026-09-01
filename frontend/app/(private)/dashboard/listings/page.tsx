@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Check, DollarSign, Package, Plus, Send, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, DollarSign, ImagePlus, Package, Plus, Send, Star, Trash2, X } from "lucide-react";
 import { Button } from "@/app/_components/ui/button";
 import { useAuth } from "@/app/context/auth-context";
 import { adminService } from "@/app/services/admin.service";
-import { productService, type ListingRecord } from "@/app/services/product.service";
+import { productService, type ListingImageRecord, type ListingRecord } from "@/app/services/product.service";
 
 const statusColors: Record<string, { bg: string; text: string }> = {
   draft: { bg: "#f2f5f2", text: "#7e8b84" },
@@ -29,6 +29,10 @@ export default function ListingsPage() {
   const [editPrice, setEditPrice] = useState("");
   const [editStock, setEditStock] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [photosListing, setPhotosListing] = useState<ListingRecord | null>(null);
+  const [listingImages, setListingImages] = useState<ListingImageRecord[]>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const photoFileRef = useRef<HTMLInputElement>(null);
   const [sellerGate, setSellerGate] = useState<null | "not_seller" | "inactive">(null);
   const isAdmin = hasRole("admin");
   const isSeller = Boolean(user?.roles?.includes("seller"));
@@ -157,6 +161,43 @@ export default function ListingsPage() {
     try { await productService.deleteListing(deleteId); setDeleteId(null); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "Listing could not be deleted."); }
   }
 
+  async function openPhotos(listing: ListingRecord) {
+    setPhotosListing(listing);
+    try {
+      setListingImages(await productService.listListingImages(listing.id));
+    } catch {
+      setListingImages([]);
+    }
+  }
+
+  async function handleUploadImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !photosListing) return;
+    setUploadingImage(true);
+    setError("");
+    try {
+      await productService.uploadListingImage(photosListing.id, file, listingImages.length === 0);
+      setListingImages(await productService.listListingImages(photosListing.id));
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Image upload failed.");
+    } finally {
+      setUploadingImage(false);
+      if (photoFileRef.current) photoFileRef.current.value = "";
+    }
+  }
+
+  async function handleDeleteImage(imageId: string) {
+    if (!photosListing) return;
+    try {
+      await productService.deleteListingImage(photosListing.id, imageId);
+      setListingImages(await productService.listListingImages(photosListing.id));
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Image could not be deleted.");
+    }
+  }
+
   const pending = listings.filter((l) => l.status === "pending_review");
   const rest = listings.filter((l) => l.status !== "pending_review");
 
@@ -251,6 +292,65 @@ export default function ListingsPage() {
               <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
               <Button onClick={confirmDelete}>Delete listing</Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Listing photos modal */}
+      {photosListing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Listing photos</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">Listing {photosListing.id.slice(0, 8)} · shown to buyers on this offer</p>
+              </div>
+              <button
+                onClick={() => { setPhotosListing(null); setListingImages([]); }}
+                className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:bg-[#f9fbf9]"
+                aria-label="Close"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end">
+              <button
+                onClick={() => photoFileRef.current?.click()}
+                disabled={uploadingImage}
+                className="flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-bold text-[var(--ink)] hover:bg-[#f9fbf9] disabled:opacity-60 transition-colors"
+              >
+                <ImagePlus size={13} /> {uploadingImage ? "Uploading..." : "Upload photo"}
+              </button>
+              <input ref={photoFileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleUploadImage} />
+            </div>
+
+            {listingImages.length === 0 ? (
+              <p className="mt-5 rounded-lg border border-dashed border-[var(--line)] bg-[#f9fbf9] px-4 py-8 text-center text-sm text-[var(--muted)]">
+                No photos yet. Upload the first one — it will be set as primary automatically.
+              </p>
+            ) : (
+              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {listingImages.map((img) => (
+                  <div key={img.id} className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--line)] bg-[#f9fbf9]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img.url} alt="listing" className="h-full w-full object-cover" />
+                    {img.is_primary && (
+                      <span className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-full bg-[var(--ink)] px-2 py-0.5 text-[10px] font-bold text-white">
+                        <Star size={9} fill="white" /> Primary
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleDeleteImage(img.id)}
+                      className="absolute top-1.5 right-1.5 hidden h-6 w-6 items-center justify-center rounded-full bg-[#b74d3b] text-white group-hover:flex"
+                      aria-label="Delete image"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -350,6 +450,9 @@ export default function ListingsPage() {
                               )}
                               {!isAdmin && ["draft", "rejected"].includes(listing.status) && (
                                 <Button size="sm" variant="outline" onClick={() => submitListing(listing.id)}><Send size={12} /> Submit</Button>
+                              )}
+                              {!isAdmin && (
+                                <Button size="sm" variant="outline" onClick={() => openPhotos(listing)}><ImagePlus size={12} /> Photos</Button>
                               )}
                               {!isAdmin && listing.status === "draft" && (
                                 <Button size="sm" variant="outline" onClick={() => setDeleteId(listing.id)}>Delete</Button>

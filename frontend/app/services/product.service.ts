@@ -38,6 +38,15 @@ export interface ListingRecord {
   updated_at: string;
 }
 
+export interface ListingImageRecord {
+  id: string;
+  listing_id: string;
+  url: string;
+  is_primary: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
 async function unwrap<T>(request: Promise<{ data: ApiResponse<T> }>, fallback: string): Promise<T> {
   const { data } = await request;
   if (!data.data) throw new Error(data.message || fallback);
@@ -62,6 +71,7 @@ export const productService = {
   uploadProductImage(id: string, file: File, isPrimary = false) { const body = new FormData(); body.append("file", file); body.append("is_primary", String(isPrimary)); return unwrap(api.post<ApiResponse<{ id: string; product_id: string; url: string; is_primary: boolean; sort_order: number; created_at: string }>>(`/products/${id}/images`, body, { headers: { "Content-Type": "multipart/form-data" } }), "Product image upload failed."); },
   deleteProductImage(productId: string, imageId: string) { return unwrap(api.delete<ApiResponse<null>>(`/products/${productId}/images/${imageId}`), "Product image could not be deleted."); },
   listListings(status?: string) { return unwrap(api.get<ApiResponse<ListingRecord[]>>("/listings", { params: status ? { status } : undefined }), "Listings could not be loaded."); },
+  getListing(id: string) { return unwrap(api.get<ApiResponse<ListingRecord>>(`/listings/${id}`), "Listing could not be loaded."); },
   createListing(input: { variant_id: string; price: number; stock: number; seller_sku?: string; condition?: ListingRecord["condition"] }) { return unwrap(api.post<ApiResponse<ListingRecord>>("/listings", input), "Listing could not be created."); },
   updateListing(id: string, input: Partial<Pick<ListingRecord, "price" | "stock" | "seller_sku" | "condition">>) { return unwrap(api.patch<ApiResponse<ListingRecord>>(`/listings/${id}`, input), "Listing could not be updated."); },
   submitListing(id: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/submit`), "Listing could not be submitted."); },
@@ -74,4 +84,7 @@ export const productService = {
   archiveListing(id: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/archive`), "Listing could not be archived."); },
   unarchiveListing(id: string) { return unwrap(api.post<ApiResponse<ListingRecord>>(`/listings/${id}/unarchive`), "Listing could not be unarchived."); },
   deleteListing(id: string) { return unwrap(api.delete<ApiResponse<null>>(`/listings/${id}`), "Listing could not be deleted."); },
+  listListingImages(id: string) { return unwrap(api.get<ApiResponse<ListingImageRecord[]>>(`/listings/${id}/images`), "Listing images could not be loaded."); },
+  uploadListingImage(id: string, file: File, isPrimary = false) { const body = new FormData(); body.append("file", file); body.append("is_primary", String(isPrimary)); return unwrap(api.post<ApiResponse<ListingImageRecord>>(`/listings/${id}/images`, body, { headers: { "Content-Type": "multipart/form-data" } }), "Listing image upload failed."); },
+  deleteListingImage(listingId: string, imageId: string) { return unwrap(api.delete<ApiResponse<null>>(`/listings/${listingId}/images/${imageId}`), "Listing image could not be deleted."); },
 };

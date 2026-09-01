@@ -42,4 +42,7 @@ export const revenueService = {
   orderSummary(orderId: string) {
     return unwrap(api.get<ApiResponse<RevenueSummaryResponse>>(`/revenue/order/${orderId}/summary`), "Revenue summary could not be loaded.");
   },
+  orderBreakdown(orderId: string) {
+    return unwrap(api.get<ApiResponse<RevenueLine[]>>(`/revenue/order/${orderId}`), "Revenue breakdown could not be loaded.");
+  },
 };

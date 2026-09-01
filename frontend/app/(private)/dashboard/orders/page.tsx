@@ -7,7 +7,7 @@ import { Button } from "@/app/_components/ui/button";
 import { useAuth } from "@/app/context/auth-context";
 import { orderService, type OrderDetailResponse, type OrderSummaryResponse, type SellerOrderResponse } from "@/app/services/order.service";
 import { paymentService, type PaymentResponse } from "@/app/services/payment.service";
-import { revenueService, type RevenueTransactionResponse } from "@/app/services/revenue.service";
+import { revenueService, type RevenueLine, type RevenueSummaryResponse, type RevenueTransactionResponse } from "@/app/services/revenue.service";
 import { rwf } from "@/app/lib/utils";
 
 const statusColors: Record<string, { bg: string; text: string }> = {
@@ -491,6 +491,10 @@ function AdminOrders() {
   const [txns, setTxns] = useState<RevenueTransactionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [breakdown, setBreakdown] = useState<RevenueLine[] | null>(null);
+  const [summary, setSummary] = useState<RevenueSummaryResponse | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -509,6 +513,27 @@ function AdminOrders() {
 
   const totalGross = txns.reduce((s, t) => s + t.amount, 0);
   const totalCommission = txns.reduce((s, t) => s + t.commission_amount, 0);
+
+  async function toggleBreakdown(orderId: string) {
+    if (expandedOrder === orderId) { setExpandedOrder(null); setBreakdown(null); setSummary(null); return; }
+    setExpandedOrder(orderId);
+    setBreakdown(null);
+    setSummary(null);
+    setDetailLoading(true);
+    setError("");
+    try {
+      const [brk, sum] = await Promise.all([
+        revenueService.orderBreakdown(orderId),
+        revenueService.orderSummary(orderId),
+      ]);
+      setBreakdown(brk);
+      setSummary(sum);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Order breakdown could not be loaded.");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -595,6 +620,55 @@ function AdminOrders() {
                   <p className="mt-2 border-t border-[#eff1ef] pt-2 text-[11px] text-[var(--muted)]">
                     Order commission total: <b className="text-[var(--ink)]">{rwf(commission)}</b>
                   </p>
+                  <button
+                    onClick={() => void toggleBreakdown(orderId)}
+                    className="mt-3 text-[11px] font-bold text-[var(--teal)] hover:underline"
+                  >
+                    {expandedOrder === orderId ? "Hide breakdown" : "View breakdown &amp; summary"}
+                  </button>
+                  {expandedOrder === orderId && (
+                    <div className="mt-3 rounded-xl border border-[var(--line)] bg-[#f9fbf9] p-4">
+                      {detailLoading ? (
+                        <p className="text-xs text-[var(--muted)]">Loading breakdown…</p>
+                      ) : summary && breakdown ? (
+                        <div className="space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Gross</p>
+                              <p className="mt-1 text-sm font-extrabold text-[var(--ink)]">{rwf(summary.total_gross)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Commission</p>
+                              <p className="mt-1 text-sm font-extrabold text-[var(--coral)]">{rwf(summary.total_commission)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Seller net</p>
+                              <p className="mt-1 text-sm font-extrabold text-[var(--teal)]">{rwf(summary.total_seller_earning)}</p>
+                            </div>
+                          </div>
+                          <div className="border-t border-[var(--line)] pt-2">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Per-seller breakdown</p>
+                            {breakdown.map((line) => (
+                              <div key={line.id} className="flex items-center justify-between py-1.5 text-xs">
+                                <div>
+                                  <p className="font-semibold text-[var(--ink)]">Seller {line.seller_id.slice(0, 8)}</p>
+                                  <p className="text-[10px] text-[var(--muted)]">
+                                    Rate {line.revenue_rate}% · {line.status}{line.released_at ? ` · released ${new Date(line.released_at).toLocaleDateString()}` : ""}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-bold text-[var(--ink)]">Net {rwf(line.seller_earning)}</p>
+                                  <p className="text-[10px] text-[var(--coral)]">-{rwf(line.commission_amount)} commission</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-[var(--coral)]">Breakdown unavailable.</p>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );

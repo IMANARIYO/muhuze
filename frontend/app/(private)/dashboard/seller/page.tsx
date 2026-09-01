@@ -116,6 +116,22 @@ export default function SellerPage() {
     } finally { setSaving(false); }
   }
 
+  async function deactivate() {
+    const confirmed = window.confirm(
+      "Deactivate your seller account? Your shop and listings will be removed from the catalog. This is not reversible through the app — contact an admin to restore it."
+    );
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      setSeller(await sellerService.deactivate());
+      setMessage("Your seller account has been deactivated.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Seller account could not be deactivated.");
+    } finally { setSaving(false); }
+  }
+
   // Step indicators
   const steps = [
     { label: "Business profile", done: Boolean(seller), active: !seller || isEditable },
@@ -306,6 +322,15 @@ export default function SellerPage() {
           <Link href="/dashboard/products" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[var(--teal)] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#28918a] transition-colors">
             Go to My Products <ChevronRight size={15} />
           </Link>
+          <div className="mt-6 border-t border-[#bdded1] pt-4 text-center">
+            <button
+              onClick={deactivate}
+              disabled={saving}
+              className="text-xs font-bold text-[#b74d3b] hover:underline disabled:opacity-50"
+            >
+              {saving ? "Deactivating..." : "Deactivate my shop"}
+            </button>
+          </div>
         </div>
       )}
     </div>
