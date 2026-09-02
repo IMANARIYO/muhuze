@@ -23,6 +23,7 @@ from app.modules.auth.exceptions import (
     InvalidRefreshTokenError,
     InvalidVerificationCodeError,
     PermissionNotFoundError,
+    PhoneAlreadyRegisteredError,
     RoleNotFoundError,
 )
 from app.modules.auth.models import Account, Permission, Role, VerificationPurpose
@@ -53,6 +54,8 @@ class AuthService:
     ) -> Account:
         if await self.accounts.get_by_email(email) is not None:
             raise EmailAlreadyRegisteredError()
+        if phone and await self.accounts.get_by_phone(phone) is not None:
+            raise PhoneAlreadyRegisteredError()
         account = await self.accounts.create(
             email=email,
             phone=phone,

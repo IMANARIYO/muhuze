@@ -107,9 +107,7 @@ class CartService:
             if listing is None:
                 continue
             product = products_by_variant.get(listing.variant_id)
-            image = next(
-                iter(images_by_product.get(product.id, [])) if product else None
-            )
+            image = images_by_product.get(product.id) if product else None
             seller = sellers_by_id.get(listing.seller_id)
             unit_price = float(listing.price)
             subtotal = round(unit_price * item.quantity, 2)

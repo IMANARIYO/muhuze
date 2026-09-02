@@ -10,6 +10,10 @@ class EmailAlreadyRegisteredError(ConflictError):
     message = "An account with this email already exists"
 
 
+class PhoneAlreadyRegisteredError(ConflictError):
+    message = "An account with this phone number already exists"
+
+
 class InvalidCredentialsError(UnauthorizedError):
     message = "Invalid email or password"
 
