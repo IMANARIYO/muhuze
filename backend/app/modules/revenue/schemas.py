@@ -8,6 +8,7 @@ class RevenueLine(BaseModel):
     """One seller's revenue split inside a paid order."""
 
     id: uuid.UUID = Field(description="Revenue transaction ID")
+    order_id: uuid.UUID | None = Field(default=None, description="The order this line belongs to")
     seller_id: uuid.UUID = Field(description="The seller")
     amount: float = Field(description="Gross from this seller")
     revenue_rate: float = Field(description="7% premium / 12% basic snapshot")

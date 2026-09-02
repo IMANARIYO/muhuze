@@ -21,6 +21,11 @@ class RevenueController:
     async def seller_breakdown(self, seller_id: uuid.UUID) -> list[RevenueLine]:
         return await self.service.breakdown_for_seller(seller_id)
 
+    async def seller_order_breakdown(
+        self, order_id: uuid.UUID, seller_id: uuid.UUID
+    ) -> list[RevenueLine]:
+        return await self.service.breakdown_for_seller_order(order_id, seller_id)
+
     async def order_summary(self, order_id: uuid.UUID) -> dict:
         return await self.service.summary_for_order(order_id)
 

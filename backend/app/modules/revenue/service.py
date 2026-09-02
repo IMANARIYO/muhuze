@@ -42,6 +42,12 @@ class RevenueService:
         txns = await self.repo.list_for_seller(seller_id)
         return [_to_line(t) for t in txns]
 
+    async def breakdown_for_seller_order(
+        self, order_id: uuid.UUID, seller_id: uuid.UUID
+    ) -> list[RevenueLine]:
+        txn = await self.repo.get_for_order_seller(order_id, seller_id)
+        return [_to_line(txn)] if txn else []
+
     async def summary_for_order(self, order_id: uuid.UUID) -> dict:
         lines = await self.breakdown_for_order(order_id)
         released = [l for l in lines if l.status == "released"]
@@ -99,6 +105,7 @@ class RevenueService:
 def _to_line(txn: RevenueTransaction) -> RevenueLine:
     return RevenueLine(
         id=txn.id,
+        order_id=txn.order_id,
         seller_id=txn.seller_id,
         amount=float(txn.amount),
         revenue_rate=float(txn.revenue_rate),

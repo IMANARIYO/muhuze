@@ -321,6 +321,13 @@ function SellerOrders() {
   const [reason, setReason] = useState("");
   const [shipping, setShipping] = useState<{ id: string; carrier: string; tracking: string } | null>(null);
   const [shipForm, setShipForm] = useState({ carrier: "", tracking_number: "" });
+  const [walletModal, setWalletModal] = useState<{ orderLine: RevenueLine | null; released: number; held: number; loading: boolean }>({
+    orderLine: null,
+    released: 0,
+    held: 0,
+    loading: true,
+  });
+  const [confirmed, setConfirmed] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -354,6 +361,30 @@ function SellerOrders() {
       setShipping(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Action failed.");
+    }
+  }
+
+  async function prepareShip(row: SellerOrderResponse) {
+    setError("");
+    setShipForm({ carrier: "", tracking_number: "" });
+    setConfirmed(false);
+    setWalletModal({ orderLine: null, released: 0, held: 0, loading: true });
+    setShipping({ id: row.id, carrier: "", tracking: "" });
+    try {
+      const [orderLines, allLines] = await Promise.all([
+        revenueService.mineForOrder(row.order_id),
+        revenueService.mine(),
+      ]);
+      const orderLine = orderLines[0] ?? null;
+      setWalletModal({
+        orderLine,
+        released: allLines.filter((l) => l.status === "released").reduce((s, l) => s + l.seller_earning, 0),
+        held: allLines.filter((l) => l.status === "held").reduce((s, l) => s + l.seller_earning, 0),
+        loading: false,
+      });
+    } catch (caught) {
+      setWalletModal({ orderLine: null, released: 0, held: 0, loading: false });
+      setError(caught instanceof Error ? caught.message : "Your wallet summary could not be loaded.");
     }
   }
 
@@ -395,6 +426,43 @@ function SellerOrders() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <h2 className="text-lg font-bold">Mark as shipped</h2>
+
+            <div className="mt-4 rounded-xl border border-[var(--line)] bg-[#fffdf0] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#b58a24]">Review your wallet before shipping</p>
+              {walletModal.loading ? (
+                <p className="mt-2 text-sm text-[var(--muted)]">Loading your earnings…</p>
+              ) : walletModal.orderLine ? (
+                <div className="mt-2 space-y-1.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[var(--muted)]">This order&apos;s gross</span>
+                    <span className="font-bold text-[var(--ink)]">{rwf(walletModal.orderLine.amount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[var(--muted)]">Commission ({Math.round(walletModal.orderLine.revenue_rate)}%)</span>
+                    <span className="font-bold text-[var(--coral)]">-{rwf(walletModal.orderLine.commission_amount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-[#f0e2c0] pt-1.5">
+                    <span className="font-semibold text-[var(--ink)]">Your net for this order</span>
+                    <span className="font-extrabold text-[var(--teal)]">{rwf(walletModal.orderLine.seller_earning)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-[var(--coral)]">No earning record found yet for this order.</p>
+              )}
+              {!walletModal.loading && (
+                <div className="mt-3 flex gap-3 border-t border-[#f0e2c0] pt-3 text-xs">
+                  <div>
+                    <p className="text-[var(--muted)]">Wallet released</p>
+                    <p className="mt-0.5 font-bold text-[var(--teal)]">{rwf(walletModal.released)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[var(--muted)]">Wallet held</p>
+                    <p className="mt-0.5 font-bold text-[var(--ink)]">{rwf(walletModal.held)}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="mt-4 space-y-3">
               <input
                 value={shipForm.carrier}
@@ -409,11 +477,18 @@ function SellerOrders() {
                 className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--teal)]"
               />
             </div>
+
+            {!walletModal.loading && (
+              <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--line)] px-3 py-2.5 text-xs text-[var(--ink)]">
+                <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5 accent-[var(--teal)]" />
+                <span>I&apos;ve reviewed my earnings and confirm I want to ship this order.</span>              </label>
+            )}
+
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShipping(null)}>Cancel</Button>
               <Button
                 onClick={() => shipping && void act(() => orderService.shipSellerOrder(shipping.id, shipForm))}
-                disabled={!shipForm.tracking_number.trim()}
+                disabled={!shipForm.tracking_number.trim() || walletModal.loading || !confirmed}
               >
                 <Truck size={14} /> Ship
               </Button>
@@ -466,7 +541,7 @@ function SellerOrders() {
                     </>
                   )}
                   {row.status === "accepted" && (
-                    <Button size="sm" onClick={() => { setShipForm({ carrier: "", tracking_number: "" }); setShipping({ id: row.id, carrier: "", tracking: "" }); }}>
+                    <Button size="sm" onClick={() => void prepareShip(row)}>
                       <Truck size={13} /> Mark as shipped
                     </Button>
                   )}

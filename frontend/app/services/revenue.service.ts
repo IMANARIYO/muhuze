@@ -36,6 +36,9 @@ export const revenueService = {
   mine() {
     return unwrap(api.get<ApiResponse<RevenueLine[]>>("/revenue/me"), "Your earnings could not be loaded.");
   },
+  mineForOrder(orderId: string) {
+    return unwrap(api.get<ApiResponse<RevenueLine[]>>(`/revenue/order/${orderId}/me`), "This order's earnings could not be loaded.");
+  },
   all() {
     return unwrap(api.get<ApiResponse<RevenueTransactionResponse[]>>("/revenue"), "Revenue transactions could not be loaded.");
   },

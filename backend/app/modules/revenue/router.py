@@ -19,6 +19,17 @@ from app.shared.responses.schemas import APIResponse
 router = APIRouter(prefix="/revenue", tags=["Revenue"])
 
 
+@router.get("/order/{order_id}/me")
+async def my_order_breakdown(
+    order_id: uuid.UUID,
+    seller: Seller = Depends(get_current_seller),
+    controller: RevenueController = Depends(get_revenue_controller),
+) -> APIResponse[list[RevenueLine]]:
+    """The caller's earning split for a single paid order (seller)."""
+    lines = await controller.seller_order_breakdown(order_id, seller.id)
+    return success_response(data=lines, message="Revenue breakdown retrieved")
+
+
 @router.get("/order/{order_id}")
 async def order_breakdown(
     order_id: uuid.UUID,

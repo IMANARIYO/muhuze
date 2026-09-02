@@ -31,6 +31,17 @@ class RevenueTransactionRepository:
         )
         return list(result.scalars().all())
 
+    async def get_for_order_seller(
+        self, order_id: uuid.UUID, seller_id: uuid.UUID
+    ) -> RevenueTransaction | None:
+        result = await self.db.execute(
+            select(RevenueTransaction).where(
+                RevenueTransaction.order_id == order_id,
+                RevenueTransaction.seller_id == seller_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def list_all(self) -> list[RevenueTransaction]:
         result = await self.db.execute(
             select(RevenueTransaction).order_by(RevenueTransaction.created_at.desc())
@@ -107,6 +118,7 @@ class RevenueTransactionRepository:
 def to_revenue_line(txn: RevenueTransaction) -> RevenueLine:
     return RevenueLine(
         id=txn.id,
+        order_id=txn.order_id,
         seller_id=txn.seller_id,
         amount=float(txn.amount),
         revenue_rate=float(txn.revenue_rate),
