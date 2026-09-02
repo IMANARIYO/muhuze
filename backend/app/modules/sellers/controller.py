@@ -64,6 +64,10 @@ class SellerController:
         seller = await self.sellers.deactivate(account)
         return SellerResponse.model_validate(seller)
 
+    async def reactivate_my_seller(self, account: Account) -> SellerResponse:
+        seller = await self.sellers.reactivate_mine(account)
+        return SellerResponse.model_validate(seller)
+
     async def upload_my_document(
         self, account: Account, *, document_type: str, file: UploadFile
     ) -> SellerDocumentResponse:

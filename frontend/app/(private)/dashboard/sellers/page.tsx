@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ExternalLink, FileText, UserRound, X } from "lucide-react";
+import { Check, ChevronDown, FileText, UserRound, X } from "lucide-react";
+import { DocumentViewer } from "./document-viewer";
 import { Button } from "@/app/_components/ui/button";
 import { adminService } from "@/app/services/admin.service";
 import { sellerService, type SellerDocument, type SellerProfile } from "@/app/services/seller.service";
@@ -28,6 +29,7 @@ export default function SellerReviewPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [suspendTarget, setSuspendTarget] = useState<SellerProfile | null>(null);
   const [suspendReason, setSuspendReason] = useState("");
+  const [viewDoc, setViewDoc] = useState<SellerDocument | null>(null);
 
   async function load() {
     setLoading(true);
@@ -154,6 +156,13 @@ export default function SellerReviewPage() {
         </div>
       )}
 
+      {viewDoc && (
+        <DocumentViewer
+          document={viewDoc}
+          onClose={() => setViewDoc(null)}
+        />
+      )}
+
       {loading ? (
         <div className="rounded-xl border border-[var(--line)] bg-white p-10 text-center text-sm text-[var(--muted)]">Loading seller applications...</div>
       ) : sellers.length === 0 ? (
@@ -245,20 +254,20 @@ export default function SellerReviewPage() {
                       ) : (
                         <div className="grid gap-2 sm:grid-cols-2">
                           {sellerDocs.map((doc) => (
-                            <a
+                            <button
                               key={doc.id}
-                              href={doc.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-3 rounded-lg border border-[var(--line)] bg-[#f9fbf9] px-4 py-3 text-xs hover:border-[var(--teal)] transition-colors"
+                              onClick={() => setViewDoc(doc)}
+                              className="flex items-center gap-3 rounded-lg border border-[var(--line)] bg-[#f9fbf9] px-4 py-3 text-left text-xs hover:border-[var(--teal)] transition-colors"
                             >
                               <FileText size={15} className="shrink-0 text-[var(--teal)]" />
                               <div className="flex-1 min-w-0">
                                 <p className="font-bold capitalize">{doc.document_type.replace(/_/g, " ")}</p>
                                 <p className="text-[var(--muted)] truncate">{doc.original_filename ?? "Document"}</p>
                               </div>
-                              <ExternalLink size={12} className="shrink-0 text-[var(--muted)]" />
-                            </a>
+                              <span className="shrink-0 rounded-md border border-[var(--line)] px-2 py-1 text-[10px] font-bold text-[var(--muted)] hover:border-[var(--teal)] hover:text-[var(--teal)]">
+                                View
+                              </span>
+                            </button>
                           ))}
                         </div>
                       )}

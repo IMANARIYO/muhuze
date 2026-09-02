@@ -5,6 +5,7 @@ export const navItems: NavItem[] = [
   { label: "Browse Products", icon: "ShoppingBag", href: "/dashboard/products", roles: ["client"] },
   { label: "My Cart", icon: "ShoppingCart", href: "/dashboard/cart", roles: ["client"] },
   { label: "My Orders", icon: "Package", href: "/dashboard/orders", roles: ["client"] },
+  { label: "Become a Seller", icon: "Store", href: "/dashboard/seller", roles: ["client"] },
   { label: "Catalog Products", icon: "Package", href: "/dashboard/products", roles: ["seller"] },
   { label: "My Listings", icon: "Tag", href: "/dashboard/listings", roles: ["seller"] },
   { label: "Create Listing", icon: "Plus", href: "/dashboard/listings/new", roles: ["seller"] },

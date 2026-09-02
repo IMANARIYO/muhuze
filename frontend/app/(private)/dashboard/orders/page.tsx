@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle, Package, Send, Smartphone, Truck, X } from "lucide-react";
 import { Card, CardContent } from "@/app/_components/ui/card";
 import { Button } from "@/app/_components/ui/button";
-import { useAuth } from "@/app/context/auth-context";
+import { useRole } from "@/app/(private)/_components/role-context";
 import { orderService, type OrderDetailResponse, type OrderSummaryResponse, type SellerOrderResponse } from "@/app/services/order.service";
 import { paymentService, type PaymentResponse } from "@/app/services/payment.service";
 import { revenueService, type RevenueLine, type RevenueSummaryResponse, type RevenueTransactionResponse } from "@/app/services/revenue.service";
@@ -32,9 +32,9 @@ function StatusBadge({ value }: { value: string }) {
 }
 
 export default function OrdersPage() {
-  const { hasRole } = useAuth();
-  const isAdmin = hasRole("admin");
-  const isSeller = hasRole("seller");
+  const { role } = useRole();
+  const isAdmin = role === "admin";
+  const isSeller = role === "seller";
 
   if (isAdmin) return <AdminOrders />;
   if (isSeller) return <SellerOrders />;
