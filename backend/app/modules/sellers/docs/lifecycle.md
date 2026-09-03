@@ -11,7 +11,7 @@
 | `active` | Approved. Operational — this is the status future product/order/wallet gates will check. |
 | `rejected` | Admin declined the application, with a `rejection_reason`. Editable again — see [resubmission](#resubmission-after-rejection). |
 | `suspended` | Was `active`, admin has temporarily blocked seller operations. The **account** is unaffected — can still log in, still buy things. |
-| `deactivated` | Seller voluntarily stopped operating (self-service, from `active` only). Terminal in the current implementation — see [open questions](#open-questions). |
+| `deactivated` | Seller voluntarily stopped operating (self-service, from `active` only). Reversible by the seller with one click — see [deactivation & reactivation](#deactivation--reactivation). |
 
 ## Transitions
 
@@ -35,15 +35,15 @@
                  ▼  │
              SUSPENDED
 
-ACTIVE ──deactivate()──► DEACTIVATED   (self-service, terminal)
+ACTIVE ──deactivate()──► DEACTIVATED ──reactivate_mine()──► ACTIVE
 ```
 
 Every arrow is enforced in `SellerService` by checking the *current*
 status before mutating — attempting a transition from the wrong state
 raises a specific `409` exception (`SellerNotSubmittableError`,
 `SellerNotPendingReviewError`, `SellerNotActiveError`,
-`SellerNotSuspendedError`) rather than a generic error, so a client can
-tell exactly what went wrong.
+`SellerNotSuspendedError`, `SellerNotDeactivatedError`) rather than a
+generic error, so a client can tell exactly what went wrong.
 
 ## Registration is one row, forever
 
@@ -64,6 +64,20 @@ seller: they edit and resubmit the *same* row (see
 3. `POST /sellers/me/submit` — back to `pending_review`. `rejection_reason`
    is cleared on the next `submitted_at`/on approval, whichever comes
    first, so it never lingers as stale information once superseded.
+
+## Deactivation & reactivation
+
+`deactivated` is **not** a dead end for the seller:
+
+1. `POST /sellers/me/deactivate` — voluntarily close the shop, `active` →
+   `deactivated` (self-service).
+2. `POST /sellers/me/reactivate` — re-open it with one click,
+   `deactivated` → `active` (self-service).
+
+This is intentionally distinct from the admin-only
+`POST /sellers/{seller_id}/reactivate`, which handles `suspended` →
+`active`. A `suspended` seller must go through an admin; a voluntarily
+`deactivated` seller can re-open their own shop.
 
 ## Editability
 
@@ -104,18 +118,13 @@ per the design discussion that produced this module, and per
 - Reject → edit → resubmit → approve.
 - Suspend an active seller → account can still log in → reactivate.
 - Self-deactivate an active seller.
+- Self-reactivate a deactivated seller back to active.
 - Every wrong-state transition attempt returns `409`, not a generic error.
 - Duplicate registration (409), duplicate business name (409).
 - Submitting without required documents (422).
 
 ## Open questions
 
-- **Is `deactivated` really terminal?** No "reactivate from deactivated"
-  path exists — only admin `reactivate()` from `suspended`. If a
-  deactivated seller wants back in, there's currently no endpoint for
-  that. Not built because it wasn't asked for; easy to add
-  (`SellerService.reactivate_from_deactivation` mirroring the existing
-  `reactivate`) once there's a concrete need.
 - **Business name uniqueness** is global and permanent (even a `draft`
   claims the name). Whether that's the right policy — vs. only reserving
   the name once `active` — hasn't been decided; kept simple for now.

@@ -3,33 +3,34 @@
 import { useState } from "react";
 import { Sidebar } from "./_components/sidebar";
 import { Topbar } from "./_components/topbar";
-import type { UserRole } from "@/app/lib/types";
+import { RoleProvider, useRole } from "./_components/role-context";
 import { useAuth } from "@/app/context/auth-context";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  // Default to the highest role the user actually has; falls back to client
-  const defaultRole = (): UserRole => {
-    if (user?.roles.includes("admin")) return "admin";
-    if (user?.roles.includes("seller")) return "seller";
-    return "client";
-  };
-  const [role, setRole] = useState<UserRole>(defaultRole);
+function DashboardShell({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const { role, setRole } = useRole();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const activeRole = user?.roles.includes(role === "client" ? "buyer" : role)
-    ? role
-    : user?.role ?? "client";
+  // Wait for the session to restore before painting the shell, otherwise the sidebar
+  // would briefly show the "client" default and then switch — the visual "shaking".
+  if (loading || !user) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[var(--paper)]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="grid h-10 w-10 animate-pulse place-items-center rounded-xl bg-[var(--ink)] text-sm font-extrabold text-[#d6f34d] -rotate-6">
+            M
+          </div>
+          <p className="text-xs text-[var(--muted)]">Loading your workspace…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen min-h-0 overflow-hidden bg-[var(--paper)]">
       <Sidebar
-        role={activeRole}
-        onRoleChange={(nextRole) => {
-          if (user?.roles.includes(nextRole === "client" ? "buyer" : nextRole)) {
-            setRole(nextRole);
-          }
-        }}
+        role={role}
+        onRoleChange={setRole}
         availableRoles={user?.roles ?? []}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
@@ -49,5 +50,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="min-h-0 flex-1 overflow-y-auto p-6 lg:p-10">{children}</main>
       </section>
     </div>
+  );
+}
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <RoleProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </RoleProvider>
   );
 }

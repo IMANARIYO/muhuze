@@ -37,6 +37,10 @@ class SellerNotSuspendedError(ConflictError):
     message = "This seller is not suspended"
 
 
+class SellerNotDeactivatedError(ConflictError):
+    message = "This seller is not deactivated"
+
+
 class MissingRequiredDocumentsError(ValidationAppError):
     message = (
         "Required identity documents are missing — submit either both sides of a "

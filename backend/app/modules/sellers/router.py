@@ -88,6 +88,19 @@ async def deactivate(
     return success_response(data=seller, message="Seller account deactivated")
 
 
+@router.post("/me/reactivate")
+async def reactivate_mine(
+    account: Account = Depends(get_current_account),
+    controller: SellerController = Depends(get_seller_controller),
+) -> APIResponse[SellerResponse]:
+    """Self-service reactivation: re-open the caller's own voluntarily
+    `deactivated` seller account back to `active` with one click. Only
+    `deactivated` -> `active`; a `suspended` seller must be reactivated by
+    an admin (POST /sellers/{seller_id}/reactivate)."""
+    seller = await controller.reactivate_my_seller(account)
+    return success_response(data=seller, message="Seller account reactivated")
+
+
 @router.post("/me/documents", status_code=status.HTTP_201_CREATED)
 async def upload_my_document(
     document_type: str = Form(...),

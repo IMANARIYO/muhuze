@@ -17,6 +17,7 @@ from app.modules.sellers.exceptions import (
     SellerNotPendingReviewError,
     SellerNotSubmittableError,
     SellerNotSuspendedError,
+    SellerNotDeactivatedError,
 )
 from app.modules.sellers.models import (
     Seller,
@@ -209,6 +210,26 @@ class SellerService:
             body=(
                 f"Your MUHUZE seller account '{seller.business_name}' has been "
                 "deactivated at your request."
+            ),
+        )
+        return updated
+
+    async def reactivate_mine(self, account: Account) -> Seller:
+        """Self-service counterpart to the admin `reactivate` — lets a
+        seller who voluntarily deactivated their own account re-open it
+        with one click. Only `deactivated` -> `active`; a suspended seller
+        must go through the admin."""
+        seller = await self.get_my_seller(account.id)
+        if seller.status != SellerStatus.DEACTIVATED:
+            raise SellerNotDeactivatedError()
+
+        updated = await self.sellers.mark_reactivated(seller)
+        await notifications.send_email(
+            to=account.email,
+            subject="MUHUZE: seller account reactivated",
+            body=(
+                f"Your MUHUZE seller account '{seller.business_name}' has been "
+                "reactivated — your shop and listings are live again."
             ),
         )
         return updated

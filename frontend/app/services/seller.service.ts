@@ -47,7 +47,12 @@ export const sellerService = {
   },
   async deactivate(): Promise<SellerProfile> {
     const { data } = await api.post<ApiResponse<SellerProfile>>("/sellers/me/deactivate");
-    if (!data.data) throw new Error(data.message || "Seller profile could not be deactivated.");
+    if (!data.data) throw new Error(data.message || "Seller account could not be deactivated.");
+    return data.data;
+  },
+  async reactivate(): Promise<SellerProfile> {
+    const { data } = await api.post<ApiResponse<SellerProfile>>("/sellers/me/reactivate");
+    if (!data.data) throw new Error(data.message || "Seller account could not be reactivated.");
     return data.data;
   },
   async listDocuments(): Promise<SellerDocument[]> {

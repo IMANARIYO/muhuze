@@ -159,7 +159,7 @@ export default function ReferralStatistics() {
       <div className="mt-6">
         <div className="bg-white rounded-3xl shadow-lg p-6">
           <p className="text-gray-500">
-            Pending Referrals
+            Pending Referrals 
           </p>
 
           <h3 className="text-2xl font-bold mt-2 text-yellow-600">

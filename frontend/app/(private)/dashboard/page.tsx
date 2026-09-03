@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, CreditCard, Package, ShoppingBag, ShoppingCart, Store, Tag, TrendingUp, Users, Wallet } from "lucide-react";
 import { Card, CardContent } from "@/app/_components/ui/card";
 import { useAuth } from "@/app/context/auth-context";
+import { useRole } from "@/app/(private)/_components/role-context";
 import { adminService } from "@/app/services/admin.service";
 import { cartService, type CartResponse } from "@/app/services/cart.service";
 import { orderService, type OrderSummaryResponse } from "@/app/services/order.service";
@@ -20,9 +21,14 @@ const statusColors: Record<string, string> = {
 };
 
 export default function DashboardOverview() {
-  const { user, hasRole } = useAuth();
-  const isAdmin = hasRole("admin");
-  const isSeller = hasRole("seller");
+  const { user } = useAuth();
+  const { role } = useRole();
+  const isAdmin = role === "admin";
+  const isSeller = role === "seller";
+  const isClient = role === "client";
+
+  // Only show the "apply to be a seller" CTA to buyers who haven't become one yet.
+  const showBecomeSeller = isClient && !user?.roles.includes("seller");
 
   const [clientOrders, setClientOrders] = useState<OrderSummaryResponse[]>([]);
   const [clientCart, setClientCart] = useState<CartResponse | null>(null);
@@ -258,6 +264,18 @@ export default function DashboardOverview() {
           {!isAdmin && !isSeller && (
             <section>
               <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.1em] text-[#a4aaa6]">Overview</p>
+              {showBecomeSeller && (
+                <Link href="/dashboard/seller" className="group mb-4 flex items-center gap-4 rounded-xl border border-[var(--teal)] bg-[#f0faf6] p-5 transition-colors hover:border-[#28918a]">
+                  <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-[var(--teal)] text-white">
+                    <Store size={18} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-[var(--ink)]">Become a seller</p>
+                    <p className="text-xs text-[var(--muted)]">Register your business profile, upload your identity documents, and start selling on MUHUZE.</p>
+                  </div>
+                  <ArrowRight size={16} className="shrink-0 text-[var(--teal)] group-hover:translate-x-0.5 transition-transform" />
+                </Link>
+              )}
               <div className="grid gap-4 sm:grid-cols-3">
                 <Card className="border-[#bdded1] bg-[#e8f4ed]">
                   <CardContent className="p-6">

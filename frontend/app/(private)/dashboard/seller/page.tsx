@@ -118,7 +118,7 @@ export default function SellerPage() {
 
   async function deactivate() {
     const confirmed = window.confirm(
-      "Deactivate your seller account? Your shop and listings will be removed from the catalog. This is not reversible through the app — contact an admin to restore it."
+      "Deactivate your seller account? Your shop and listings will be removed from the catalog. You can reactivate your account anytime from this page."
     );
     if (!confirmed) return;
     setSaving(true);
@@ -129,6 +129,22 @@ export default function SellerPage() {
       setMessage("Your seller account has been deactivated.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Seller account could not be deactivated.");
+    } finally { setSaving(false); }
+  }
+
+  async function reactivate() {
+    const confirmed = window.confirm(
+      "Reactivate your seller account? Your shop and listings will be available to buyers again."
+    );
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      setSeller(await sellerService.reactivate());
+      setMessage("Your seller account has been reactivated.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Seller account could not be reactivated.");
     } finally { setSaving(false); }
   }
 
@@ -331,6 +347,25 @@ export default function SellerPage() {
               {saving ? "Deactivating..." : "Deactivate my shop"}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Deactivated state */}
+      {seller?.status === "deactivated" && (
+        <div className="rounded-xl border border-[#f0d98a] bg-[#fffdf0] p-6 text-center">
+          <Store size={28} className="mx-auto text-[#b58a24]" />
+          <h2 className="mt-3 font-bold text-[var(--ink)]">Your shop is deactivated</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-[var(--muted)]">
+            Your seller account is currently off and your listings aren&apos;t available to buyers.
+            When you&apos;re ready, reactivate it with one click — your shop comes straight back.
+          </p>
+          <button
+            onClick={reactivate}
+            disabled={saving}
+            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[var(--teal)] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#28918a] transition-colors disabled:opacity-50"
+          >
+            <ShieldCheck size={16} /> {saving ? "Reactivating..." : "Reactivate my shop"}
+          </button>
         </div>
       )}
     </div>
