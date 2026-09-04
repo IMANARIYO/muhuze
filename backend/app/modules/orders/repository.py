@@ -39,6 +39,12 @@ class OrderRepository:
         )
         return list(result.scalars().all())
 
+    async def list_all(self) -> list[Order]:
+        result = await self.db.execute(
+            select(Order).order_by(Order.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def create(
         self,
         *,

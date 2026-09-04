@@ -1,9 +1,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel, Field
 
-from app.modules.auth.dependencies import get_current_account
+from app.modules.auth.dependencies import get_current_account, require_role
 from app.modules.auth.models import Account
 from app.modules.payments.controller import PaymentController
 from app.modules.payments.dependencies import get_payment_controller
@@ -18,10 +17,6 @@ from app.shared.responses.schemas import APIResponse
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
-class MarkPaidRequest(BaseModel):
-    provider_ref: str | None = Field(default=None, max_length=255, description="Reserved for future PSP")
-
-
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_payment(
     payload: CreatePaymentRequest,
@@ -34,17 +29,34 @@ async def create_payment(
 
 
 @router.post("/{payment_id}/paid")
-async def mark_paid(
+async def report_paid(
     payment_id: uuid.UUID,
-    payload: MarkPaidRequest,
     account: Account = Depends(get_current_account),
     controller: PaymentController = Depends(get_payment_controller),
+) -> APIResponse[PaymentResponse]:
+    """Buyer reports they sent the money outside the app (pending -> awaiting).
+
+    This does NOT yet derive revenue or open seller orders — it only flags the
+    payment for MUHUZE admin to verify. The sellers only see the order and
+    their money once an admin confirms actual receipt (POST .../confirm)."""
+    payment = await controller.report_paid(payment_id)
+    return success_response(data=payment, message="Payment reported — awaiting admin confirmation")
+
+
+@router.post("/{payment_id}/confirm")
+async def confirm_paid(
+    payment_id: uuid.UUID,
+    admin: Account = Depends(require_role("admin")),
+    controller: PaymentController = Depends(get_payment_controller),
 ) -> APIResponse[PaidPaymentResponse]:
-    """Confirm money-in. This is the exact moment the MUHUZE commission split
-    (7% premium / 12% basic) is derived into revenue_transactions — idempotent
-    per (order, seller), and the order flips to `paid` in the same commit."""
-    payment = await controller.mark_paid(payment_id, provider_ref=payload.provider_ref)
-    return success_response(data=payment, message="Payment marked as paid")
+    """MUHUZE admin confirms the money actually arrived (awaiting -> paid).
+
+    This is the exact moment the MUHUZE commission split (7% premium / 12%
+    basic) is derived into revenue_transactions and each seller's order is
+    opened, so the sellers see the order and their earnings. Idempotent per
+    (order, seller); the order flips to `paid` in the same commit."""
+    payment = await controller.confirm_paid(payment_id)
+    return success_response(data=payment, message="Money received — payment confirmed")
 
 
 @router.post("/{payment_id}/failed")

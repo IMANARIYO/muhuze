@@ -116,3 +116,16 @@ class OrderSummaryResponse(BaseModel):
     total_amount: float = Field(description="Total payable")
     currency: str = Field(description="Billing currency")
     created_at: datetime = Field(description="When created (UTC)")
+
+
+class AdminOrderSummaryResponse(OrderSummaryResponse):
+    """An order plus its single payment's own state, so an admin can see which
+    orders are awaiting manual confirmation of the incoming MoMo."""
+
+    payment_id: uuid.UUID | None = Field(
+        default=None, description="The order's payment row, if one exists"
+    )
+    payment_status_detail: str | None = Field(
+        default=None,
+        description="The payment's own status (pending | awaiting | paid | failed), if a payment exists",
+    )

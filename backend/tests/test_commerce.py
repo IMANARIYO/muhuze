@@ -188,11 +188,17 @@ async def make_buyer(client: AsyncClient) -> dict:
 
 
 async def buy_single_line(
-    client: AsyncClient, buyer_headers: dict, listing_id: uuid.UUID, quantity: int = 1
+    client: AsyncClient,
+    buyer_headers: dict,
+    listing_id: uuid.UUID,
+    quantity: int = 1,
+    db: AsyncSession | None = None,
 ) -> dict:
     """Add one listing to the buyer's cart, check out, initiate an Airtel
-    Money payment and confirm it. Returns the order_detail plus the payment
-    response (which includes `revenue`)."""
+    Money payment, have the buyer report it, then have an admin confirm the
+    money arrived (this is what actually records revenue + opens seller
+    orders). Returns the order_detail plus the *confirmed* payment response
+    (which includes `revenue`)."""
     await client.post(
         "/api/v1/carts/items",
         json={"listing_id": str(listing_id), "quantity": quantity},
@@ -221,13 +227,22 @@ async def buy_single_line(
         headers=buyer_headers,
     )
     payment_id = payment.json()["data"]["id"]
-    paid = await client.post(
+    reported = await client.post(
         f"/api/v1/payments/{payment_id}/paid",
         json={},
         headers=buyer_headers,
     )
-    assert paid.status_code == 200
-    return {"order": order, "payment": paid.json()["data"]}
+    assert reported.status_code == 200
+    assert reported.json()["data"]["status"] == "awaiting"
+    assert db is not None, "buy_single_line requires db to confirm as admin"
+    admin_tokens = await make_admin(client, db)
+    confirmed = await client.post(
+        f"/api/v1/payments/{payment_id}/confirm",
+        json={},
+        headers=auth_headers(admin_tokens),
+    )
+    assert confirmed.status_code == 200
+    return {"order": order, "payment": confirmed.json()["data"]}
 
 
 async def make_premium_plan(
@@ -375,7 +390,7 @@ async def test_basic_seller_pays_12_percent(
     buyer_headers = await make_buyer(client)
     ctx = await publish_product_with_listing(client, db, monkeypatch, price=100.0)
 
-    result = await buy_single_line(client, buyer_headers, ctx["listing_id"])
+    result = await buy_single_line(client, buyer_headers, ctx["listing_id"], db=db)
     order = result["order"]
     payment = result["payment"]
 
@@ -419,7 +434,7 @@ async def test_premium_seller_pays_7_percent(
     )
     assert subscribed.status_code == 201
 
-    result = await buy_single_line(client, buyer_headers, ctx["listing_id"])
+    result = await buy_single_line(client, buyer_headers, ctx["listing_id"], db=db)
     order = result["order"]
 
     admin_tokens = await make_admin(client, db)
@@ -432,11 +447,12 @@ async def test_premium_seller_pays_7_percent(
     assert line["seller_earning"] == pytest.approx(93.0)
 
 
-async def test_idempotent_paid_does_not_double_credit(
+async def test_idempotent_reports_and_confirms_do_not_double_credit(
     client: AsyncClient, db: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     buyer_headers = await make_buyer(client)
     ctx = await publish_product_with_listing(client, db, monkeypatch, price=100.0)
+    admin_headers = auth_headers(await make_admin(client, db))
 
     await client.post(
         "/api/v1/carts/items",
@@ -460,19 +476,31 @@ async def test_idempotent_paid_does_not_double_credit(
     )
     payment_id = payment.json()["data"]["id"]
 
+    # buyer reports once -> awaiting; a second report is rejected (idempotent)
     first = await client.post(
         f"/api/v1/payments/{payment_id}/paid", json={}, headers=buyer_headers
     )
     assert first.status_code == 200
+    assert first.json()["data"]["status"] == "awaiting"
     second = await client.post(
         f"/api/v1/payments/{payment_id}/paid", json={}, headers=buyer_headers
     )
-    # already processed -> 400, no double credit
     assert second.status_code == 400
 
-    admin_tokens = await make_admin(client, db)
+    # admin confirms once -> paid + revenue; a second confirm is rejected
+    confirm1 = await client.post(
+        f"/api/v1/payments/{payment_id}/confirm", json={}, headers=admin_headers
+    )
+    assert confirm1.status_code == 200
+    assert confirm1.json()["data"]["revenue"] == 1
+    assert confirm1.json()["data"]["status"] == "paid"
+    confirm2 = await client.post(
+        f"/api/v1/payments/{payment_id}/confirm", json={}, headers=admin_headers
+    )
+    assert confirm2.status_code == 400
+
     lines = await client.get(
-        f"/api/v1/revenue/order/{order_id}", headers=auth_headers(admin_tokens)
+        f"/api/v1/revenue/order/{order_id}", headers=admin_headers
     )
     assert len(lines.json()["data"]) == 1
     assert lines.json()["data"][0]["commission_amount"] == pytest.approx(12.0)
@@ -585,7 +613,7 @@ async def test_seller_fulfillment_lifecycle(
     seller_headers = auth_headers(ctx["seller_tokens"])
 
     # buy + pay -> should open exactly one pending seller_order for the seller
-    await buy_single_line(client, buyer_headers, ctx["listing_id"])
+    await buy_single_line(client, buyer_headers, ctx["listing_id"], db=db)
 
     mine = await client.get("/api/v1/orders/seller", headers=seller_headers)
     assert mine.status_code == 200
@@ -651,7 +679,7 @@ async def test_buyer_sees_fulfillment_and_receives_order(
     ctx = await publish_product_with_listing(client, db, monkeypatch, price=100.0)
     seller_headers = auth_headers(ctx["seller_tokens"])
 
-    result = await buy_single_line(client, buyer_headers, ctx["listing_id"])
+    result = await buy_single_line(client, buyer_headers, ctx["listing_id"], db=db)
     order = result["order"]
     order_id = order["id"]
 

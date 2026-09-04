@@ -11,12 +11,14 @@ from app.modules.orders.repository import (
     ShippingInfoRepository,
 )
 from app.modules.orders.schemas import (
+    AdminOrderSummaryResponse,
     CheckoutRequest,
     OrderDetailResponse,
     OrderSummaryResponse,
     ShippingInfoResponse,
 )
 from app.modules.orders.service import OrderService
+from app.modules.payments.repository import PaymentRepository
 
 
 class OrderController:
@@ -29,6 +31,7 @@ class OrderController:
         self.info_repo = ShippingInfoRepository(db)
         self.seller_order_repo = SellerOrderRepository(db)
         self.shipment_repo = ShipmentRepository(db)
+        self.payments = PaymentRepository(db)
 
     async def checkout(self, account: Account, payload: CheckoutRequest) -> OrderDetailResponse:
         order = await self.service.checkout(account.id, payload)
@@ -51,6 +54,18 @@ class OrderController:
     async def list_orders(self, account: Account) -> list[OrderSummaryResponse]:
         orders = await self.service.list_for_account(account.id)
         return [OrderSummaryResponse.model_validate(order) for order in orders]
+
+    async def list_all_orders(self, _admin: Account) -> list[AdminOrderSummaryResponse]:
+        orders = await self.service.list_all_orders()
+        result: list[AdminOrderSummaryResponse] = []
+        for order in orders:
+            summary = AdminOrderSummaryResponse.model_validate(order)
+            payment = await self.payments.get_for_order(order.id)
+            if payment is not None:
+                summary.payment_id = payment.id
+                summary.payment_status_detail = payment.status
+            result.append(summary)
+        return result
 
     async def _fulfillment_for_order(self, order_id: uuid.UUID) -> list[SellerOrderResponse]:
         rows = await self.seller_order_repo.list_for_order(order_id)

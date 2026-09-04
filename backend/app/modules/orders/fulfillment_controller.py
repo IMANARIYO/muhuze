@@ -4,10 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.orders.fulfillment import FulfillmentService
 from app.modules.orders.fulfillment_schemas import (
+    SellerOrderItemResponse,
     SellerOrderResponse,
     ShipmentResponse,
 )
-from app.modules.orders.repository import ShipmentRepository
+from app.modules.orders.repository import (
+    OrderItemRepository,
+    OrderRepository,
+    ShipmentRepository,
+)
+from app.modules.revenue.repository import RevenueTransactionRepository
 from app.modules.sellers.models import Seller
 
 
@@ -17,6 +23,9 @@ class FulfillmentController:
     def __init__(self, db: AsyncSession) -> None:
         self.service = FulfillmentService(db)
         self.shipments = ShipmentRepository(db)
+        self.orders = OrderRepository(db)
+        self.items = OrderItemRepository(db)
+        self.revenue = RevenueTransactionRepository(db)
 
     async def list_my(self, seller: Seller) -> list[SellerOrderResponse]:
         rows = await self.service.list_for_seller(seller.id)
@@ -70,4 +79,36 @@ class FulfillmentController:
         response = SellerOrderResponse.model_validate(seller_order)
         shipment = await self.shipments.get_for_seller_order(seller_order.id)
         response.shipment = ShipmentResponse.model_validate(shipment) if shipment else None
+
+        order = await self.orders.get_by_id(seller_order.order_id)
+        if order is not None:
+            response.order_number = order.order_number
+            response.payment_status = order.payment_status
+            response.currency = order.currency
+
+        line_items = await self.items.list_for_seller_order(
+            seller_order.seller_id, seller_order.order_id
+        )
+        response.items = [
+            SellerOrderItemResponse(
+                listing_id=item.listing_id,
+                product_name=item.product_name,
+                variant_name=item.variant_name,
+                unit_price=float(item.unit_price),
+                quantity=item.quantity,
+                subtotal=float(item.subtotal),
+            )
+            for item in line_items
+        ]
+        response.gross = round(sum(float(i.subtotal) for i in line_items), 2)
+
+        revenue = await self.revenue.get_for_order_seller(
+            seller_order.order_id, seller_order.seller_id
+        )
+        if revenue is not None and order is not None and order.payment_status == "paid":
+            response.revenue_rate = float(revenue.revenue_rate)
+            response.commission_amount = float(revenue.commission_amount)
+            response.seller_net = float(revenue.seller_earning)
+            response.revenue_status = revenue.status
+
         return response

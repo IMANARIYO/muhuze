@@ -22,10 +22,16 @@ class PaymentService:
     v1 has no live PSP: `create` asks the (stub) Momo gateway for a payment
     request — the buyer's `momo_phone` is charged and the gateway returns a
     `request_reference` stored as `provider_ref`; the order stays `pending`.
-    `mark_paid` is the provider-callback/confirmation moment: it derives
-    MUHUZE's revenue AND opens each seller's `seller_order` (fulfillment) in
-    the SAME DB transaction as the payment/order state change, so all money
-    facts commit together or not at all.
+
+    Money-in is confirmed in two steps because payment happens *outside* the
+    app (the buyer sends MoMo to MUHUZE's number via USSD/app):
+      * `report_paid`  — the buyer reports they sent it (`pending -> awaiting`);
+        nothing is derived yet.
+      * `confirm_paid` — MUHUZE admin verifies the money actually arrived
+        (`awaiting -> paid`); THIS derives each seller's revenue AND opens
+        each seller's fulfillment `seller_order` in the SAME DB transaction
+        as the payment/order state change, so all money facts commit together
+        or not at all.
     """
 
     def __init__(
@@ -44,8 +50,8 @@ class PaymentService:
         buyer_account_id: uuid.UUID,
         order_id: uuid.UUID,
         *,
-        momo_phone: str,
-        airtel_phone: str,
+        momo_phone: str | None = None,
+        airtel_phone: str | None = None,
         method: str | None = None,
     ) -> Payment:
         order = await self._get_owned_order(buyer_account_id, order_id)
@@ -71,18 +77,36 @@ class PaymentService:
             provider_ref=request_reference,
         )
 
-    async def mark_paid(
-        self, payment_id: uuid.UUID, provider_ref: str | None = None
-    ) -> tuple[Payment, int]:
+    async def report_paid(self, payment_id: uuid.UUID) -> Payment:
+        """Buyer reports they sent the money outside the app.
+
+        Moves the payment `pending -> awaiting`. Nothing is derived yet: the
+        admin must *confirm* the money actually arrived for revenue and
+        seller-orders to be created (see `confirm_paid`). Idempotent — a
+        payment already `awaiting` (or beyond) is rejected by the caller."""
         payment = await self.repo.get_by_id(payment_id)
         if payment is None:
             raise PaymentNotFoundError()
         if payment.status != PaymentStatus.PENDING:
             raise PaymentAlreadyProcessedError()
+        return await self.repo.mark_awaiting(payment)
 
-        reference = provider_ref or payment.provider_ref or ""
-        if not self.gateway.confirm_payment(reference):
+    async def confirm_paid(
+        self, payment_id: uuid.UUID
+    ) -> tuple[Payment, int]:
+        """MUHUZE admin confirms the money actually arrived.
+
+        This is the moment the money really clears: it derives each seller's
+        revenue (commission split at the seller's rate), opens each seller's
+        fulfillment `seller_order` (so the seller sees the order in their
+        dashboard), and flips the payment and order to `paid` — all in one
+        DB transaction, or not at all. Idempotent: a payment already `paid`
+        cannot be double-confirmed."""
+        payment = await self.repo.get_by_id(payment_id)
+        if payment is None:
             raise PaymentNotFoundError()
+        if payment.status != PaymentStatus.AWAITING:
+            raise PaymentAlreadyProcessedError()
 
         order = await self.orders.get_by_id(payment.order_id)
         if order is None:

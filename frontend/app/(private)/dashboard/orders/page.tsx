@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle, Package, Send, Smartphone, Truck, X } from "lucide-react";
+import { CheckCircle, Copy, Package, Send, Smartphone, Truck, X } from "lucide-react";
 import { Card, CardContent } from "@/app/_components/ui/card";
 import { Button } from "@/app/_components/ui/button";
 import { useRole } from "@/app/(private)/_components/role-context";
-import { orderService, type OrderDetailResponse, type OrderSummaryResponse, type SellerOrderResponse } from "@/app/services/order.service";
+import { orderService, type AdminOrderSummaryResponse, type OrderDetailResponse, type OrderSummaryResponse, type SellerOrderResponse } from "@/app/services/order.service";
 import { paymentService, type PaymentResponse } from "@/app/services/payment.service";
 import { revenueService, type RevenueLine, type RevenueSummaryResponse, type RevenueTransactionResponse } from "@/app/services/revenue.service";
 import { rwf } from "@/app/lib/utils";
 
 const statusColors: Record<string, { bg: string; text: string }> = {
   pending: { bg: "#fbf0ce", text: "#b58a24" },
+  awaiting: { bg: "#e4edfa", text: "#577ebd" },
   cancelled: { bg: "#fbe6e0", text: "#d75e4a" },
   paid: { bg: "#e8f4ed", text: "#2d7a5e" },
   failed: { bg: "#fbe6e0", text: "#d75e4a" },
@@ -43,21 +44,25 @@ export default function OrdersPage() {
 
 /* ─────────────────────────────── CLIENT ─────────────────────────────── */
 
+const MUHUZE_MOMO = "0788 000 000";
+
 function PayModal({ order, onClose, onPaid }: { order: OrderSummaryResponse; onClose: () => void; onPaid: () => void }) {
-  const [momo, setMomo] = useState({ momo_phone: "", airtel_phone: "" });
+  const [momoPhone, setMomoPhone] = useState("");
   const [payment, setPayment] = useState<PaymentResponse | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [reported, setReported] = useState(false);
+
+  function copyMomo() {
+    navigator.clipboard.writeText(MUHUZE_MOMO).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
 
   async function start() {
-    if (!momo.momo_phone.trim() || !momo.airtel_phone.trim()) {
-      setError("Please provide both the Airtel Money wallet and the Airtel line numbers.");
-      return;
-    }
     setWorking(true);
     setError("");
     try {
-      setPayment(await paymentService.create({ order_id: order.id, momo_phone: momo.momo_phone.trim(), airtel_phone: momo.airtel_phone.trim() }));
+      setPayment(await paymentService.create({ order_id: order.id, momo_phone: momoPhone.trim() || undefined }));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Payment could not be started.");
     } finally {
@@ -70,11 +75,10 @@ function PayModal({ order, onClose, onPaid }: { order: OrderSummaryResponse; onC
     setWorking(true);
     setError("");
     try {
-      await paymentService.markPaid(payment.id);
-      onPaid();
-      onClose();
+      await paymentService.reportPaid(payment.id);
+      setReported(true);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Payment could not be confirmed.");
+      setError(caught instanceof Error ? caught.message : "Payment could not be reported.");
     } finally {
       setWorking(false);
     }
@@ -112,38 +116,56 @@ function PayModal({ order, onClose, onPaid }: { order: OrderSummaryResponse; onC
 
         {error && <p role="alert" className="mt-4 rounded-lg bg-[#fbe6e0] px-3 py-2 text-xs text-[#b74d3b]">{error}</p>}
 
-        {!payment ? (
-          <div className="mt-5 space-y-3">
+        {reported ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-xl border border-[#bdded1] bg-[#e8f4ed] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#2d7a5e]">Payment reported</p>
+              <p className="mt-2 text-sm text-[#2d7a5e]">
+                Thanks! MUHUZE will confirm the money arrived and the sellers will start preparing your order. This usually takes a little while.
+              </p>
+              <p className="mt-2 text-xs text-[var(--muted)]">You can track the status from your orders page.</p>
+            </div>
+            <Button className="w-full" onClick={() => { onPaid(); onClose(); }}>Done</Button>
+          </div>
+        ) : !payment ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-xl border border-[#bdded1] bg-[#e8f4ed] p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#2d7a5e]">Send MoMo to MUHUZE</p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <p className="text-xl font-black tracking-tight text-[var(--ink)]">{MUHUZE_MOMO}</p>
+                <button onClick={copyMomo} className="flex items-center gap-1 rounded-lg border border-[#bdded1] bg-white px-2.5 py-1 text-xs font-bold text-[#2d7a5e] hover:bg-[#d5f2e2]">
+                  <Copy size={11} /> {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-[#2d7a5e]">Amount: <b>{rwf(order.total_amount)}</b> · Ref: <b>{order.order_number}</b></p>
+            </div>
+            <ol className="list-decimal space-y-1 pl-5 text-xs leading-6 text-[var(--muted)]">
+              <li>Dial <b>*182#</b> (MTN) or <b>*500#</b> (Airtel) and send the amount above.</li>
+              <li>Use <b>{order.order_number}</b> as the reference.</li>
+              <li>Enter your phone number below, then confirm.</li>
+            </ol>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--muted)]">Airtel Money wallet to charge</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--muted)]">Your MoMo phone <span className="font-normal">(optional — for our records)</span></label>
               <input
-                value={momo.momo_phone}
-                onChange={(e) => setMomo((m) => ({ ...m, momo_phone: e.target.value }))}
+                value={momoPhone}
+                onChange={(e) => setMomoPhone(e.target.value)}
                 placeholder="e.g. 0788 123 456"
                 className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--teal)]"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--muted)]">Airtel line the payment is sent from</label>
-              <input
-                value={momo.airtel_phone}
-                onChange={(e) => setMomo((m) => ({ ...m, airtel_phone: e.target.value }))}
-                placeholder="e.g. 0733 123 456"
-                className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--teal)]"
-              />
-            </div>
             <Button className="w-full" onClick={start} disabled={working}>
-              <Smartphone size={15} /> Start payment
+              {working ? "Processing…" : "I've sent the payment"}
             </Button>
           </div>
         ) : (
           <div className="mt-5 space-y-4">
             <div className="rounded-xl border border-[#f0d98a] bg-[#fffdf0] p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#b58a24]">Pay on your phone</p>
+              <p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#b58a24]">Confirm you sent the money</p>
               <p className="mt-2 text-2xl font-black tracking-tight">{rwf(payment.amount)}</p>
               <p className="mt-1 text-xs text-[var(--muted)]">
                 Reference: <span className="font-mono">{payment.provider_ref ?? payment.id}</span> · dial <b>*500#</b>
               </p>
+              <p className="mt-2 text-xs text-[#b58a24]">Your order will start once MUHUZE confirms the money arrived.</p>
             </div>
             <Button className="w-full" onClick={confirmPaid} disabled={working}>
               <CheckCircle size={15} /> I&apos;ve completed the payment
@@ -368,24 +390,23 @@ function SellerOrders() {
     setError("");
     setShipForm({ carrier: "", tracking_number: "" });
     setConfirmed(false);
-    setWalletModal({ orderLine: null, released: 0, held: 0, loading: true });
+    setWalletModal({
+      orderLine: {
+        id: "",
+        seller_id: row.seller_id,
+        amount: row.gross,
+        revenue_rate: row.revenue_rate,
+        commission_amount: row.commission_amount,
+        seller_earning: row.seller_net,
+        referral_eligible: false,
+        status: row.revenue_status ?? "held",
+        released_at: null,
+      },
+      released: row.revenue_status === "released" ? row.seller_net : 0,
+      held: row.revenue_status === "held" ? row.seller_net : 0,
+      loading: false,
+    });
     setShipping({ id: row.id, carrier: "", tracking: "" });
-    try {
-      const [orderLines, allLines] = await Promise.all([
-        revenueService.mineForOrder(row.order_id),
-        revenueService.mine(),
-      ]);
-      const orderLine = orderLines[0] ?? null;
-      setWalletModal({
-        orderLine,
-        released: allLines.filter((l) => l.status === "released").reduce((s, l) => s + l.seller_earning, 0),
-        held: allLines.filter((l) => l.status === "held").reduce((s, l) => s + l.seller_earning, 0),
-        loading: false,
-      });
-    } catch (caught) {
-      setWalletModal({ orderLine: null, released: 0, held: 0, loading: false });
-      setError(caught instanceof Error ? caught.message : "Your wallet summary could not be loaded.");
-    }
   }
 
   const pendingCount = rows.filter((r) => r.status === "pending").length;
@@ -516,11 +537,14 @@ function SellerOrders() {
                       <Send size={18} />
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-[var(--ink)]">#{row.order_id.slice(0, 8)}</p>
+                      <p className="text-xs font-bold text-[var(--ink)]">{row.order_number ?? `#${row.order_id.slice(0, 8)}`}</p>
                       <p className="text-[10px] text-[var(--muted)]">{new Date(row.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
-                  <StatusBadge value={row.status} />
+                  <div className="flex items-center gap-2">
+                    <StatusBadge value={row.status} />
+                    {row.payment_status && <StatusBadge value={row.payment_status} />}
+                  </div>
                 </div>
 
                 {row.status === "rejected" && row.rejected_reason && (
@@ -531,6 +555,41 @@ function SellerOrders() {
                   <p className="mt-3 text-[11px] text-[var(--muted)]">
                     Shipment: {row.shipment.carrier || "Carrier"} {row.shipment.tracking_number ? `· ${row.shipment.tracking_number}` : ""} · <b className="capitalize">{row.shipment.status}</b>
                   </p>
+                )}
+                {row.revenue_status && (
+                  <p className="mt-3 text-[11px] text-[var(--muted)]">
+                    Earnings: <b className={`capitalize ${row.revenue_status === "released" ? "text-[#2d7a5e]" : "text-[#b58a24]"}`}>{row.revenue_status}</b>
+                  </p>
+                )}
+
+                {row.items.length > 0 && (
+                  <div className="mt-3 rounded-xl bg-[#f9fbf9] p-3 text-xs">
+                    {row.items.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between py-0.5">
+                        <div>
+                          <p className="font-semibold text-[var(--ink)]">{item.product_name}</p>
+                          <p className="text-[10px] text-[var(--muted)]">Qty: {item.quantity}{item.variant_name ? ` · ${item.variant_name}` : ""} · {rwf(item.unit_price)} each</p>
+                        </div>
+                        <span className="font-bold text-[var(--ink)]">{rwf(item.subtotal)}</span>
+                      </div>
+                    ))}
+                    {row.currency && (
+                      <div className="mt-2 space-y-1 border-t border-[var(--line)] pt-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[var(--muted)]">Your gross</span>
+                          <span className="font-bold text-[var(--ink)]">{rwf(row.gross)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[var(--muted)]">Commission ({Math.round(row.revenue_rate)}%)</span>
+                          <span className="font-bold text-[var(--coral)]">-{rwf(row.commission_amount)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-[var(--ink)]">Your net</span>
+                          <span className="font-extrabold text-[var(--teal)]">{rwf(row.seller_net)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <div className="mt-4 flex flex-wrap gap-2 border-t border-[#eff1ef] pt-3">
@@ -564,22 +623,41 @@ function SellerOrders() {
 
 function AdminOrders() {
   const [txns, setTxns] = useState<RevenueTransactionResponse[]>([]);
+  const [orders, setOrders] = useState<AdminOrderSummaryResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<RevenueLine[] | null>(null);
   const [summary, setSummary] = useState<RevenueSummaryResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    revenueService
-      .all()
-      .then((rows) => { if (!cancelled) setTxns(rows); })
-      .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Revenue transactions could not be loaded."); })
+    Promise.all([revenueService.all(), orderService.listAll()])
+      .then(([rows, ords]) => { if (!cancelled) { setTxns(rows); setOrders(ords); } })
+      .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "Orders could not be loaded."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  async function confirmMoney(order: AdminOrderSummaryResponse) {
+    if (!order.payment_id) return;
+    setError("");
+    setConfirming(order.id);
+    try {
+      await paymentService.confirmPaid(order.payment_id);
+      const [rows, ords] = await Promise.all([revenueService.all(), orderService.listAll()]);
+      setTxns(rows);
+      setOrders(ords);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Payment could not be confirmed.");
+    } finally {
+      setConfirming(null);
+    }
+  }
+
+  const awaiting = orders.filter((o) => o.payment_status_detail === "awaiting" && o.payment_id);
 
   const byOrder = new Map<string, RevenueTransactionResponse[]>();
   for (const row of txns) {
@@ -615,7 +693,7 @@ function AdminOrders() {
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight text-[var(--ink)]">All Orders</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Paid orders with the per-seller commission split (derived at payment time).
+          Confirm incoming payments, then track the per-seller commission split.
         </p>
       </div>
 
@@ -644,111 +722,160 @@ function AdminOrders() {
 
       {loading ? (
         <div className="rounded-xl border border-[var(--line)] bg-white p-10 text-center text-sm text-[var(--muted)]">Loading orders…</div>
-      ) : txns.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[var(--line)] bg-white p-14 text-center">
-          <Package className="mx-auto text-[#9aa9a1]" size={32} />
-          <h2 className="mt-4 font-bold">No paid orders yet</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">Revenue transactions appear once buyers complete payments.</p>
-        </div>
       ) : (
-        <div className="space-y-3">
-          {Array.from(byOrder.entries()).map(([orderId, lines]) => {
-            const total = lines.reduce((s, l) => s + l.amount, 0);
-            const commission = lines.reduce((s, l) => s + l.commission_amount, 0);
-            const released = lines.every((l) => l.status === "released");
-            return (
-              <Card key={orderId}>
-                <CardContent className="p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-[#e8f4ed] text-[var(--teal)]">
-                        <Package size={18} />
+        <>
+          {/* ── Money confirmation queue ── */}
+          <section>
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.1em] text-[#a4aaa6]">
+              Awaiting money confirmation
+            </p>
+            {awaiting.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[var(--line)] bg-white p-8 text-center text-sm text-[var(--muted)]">
+                No payments awaiting confirmation.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {awaiting.map((order) => (
+                  <Card key={order.id} className="border-[#e4edfa]">
+                    <CardContent className="p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-[#e4edfa] text-[#577ebd]">
+                            <Smartphone size={18} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-[var(--ink)]">{order.order_number}</p>
+                            <p className="text-[10px] text-[var(--muted)]">{new Date(order.created_at).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge value={order.payment_status_detail ?? order.payment_status} />
+                          <span className="text-sm font-extrabold text-[var(--ink)]">{rwf(order.total_amount)}</span>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs font-bold text-[var(--ink)]">Order #{orderId.slice(0, 8)}</p>
-                        <p className="text-[10px] text-[var(--muted)]">
-                          {lines.length} seller line{lines.length > 1 ? "s" : ""} · {new Date(lines[0].created_at).toLocaleDateString()}
+                      <div className="mt-4 flex items-center justify-between border-t border-[#eff1ef] pt-3">
+                        <p className="text-[11px] text-[var(--muted)]">
+                          The buyer reported sending {rwf(order.total_amount)}. Verify MUHUZE received it, then confirm to open the sellers&apos; orders and record revenue.
                         </p>
+                        <Button size="sm" onClick={() => void confirmMoney(order)} disabled={confirming === order.id}>
+                          <CheckCircle size={13} /> {confirming === order.id ? "Confirming…" : "Confirm money received"}
+                        </Button>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge value={released ? "delivered" : "active"} />
-                      <span className="text-sm font-extrabold text-[var(--ink)]">{rwf(total)}</span>
-                    </div>
-                  </div>
-                  <div className="mt-3 divide-y divide-[#eff1ef]">
-                    {lines.map((line) => (
-                      <div key={line.id} className="flex items-center justify-between py-2 text-xs">
-                        <div>
-                          <p className="font-semibold text-[var(--ink)]">Seller {line.seller_id.slice(0, 8)}</p>
-                          <p className="text-[10px] text-[var(--muted)]">
-                            Rate {line.revenue_rate}% · {line.status}
-                          </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Paid orders / revenue split ── */}
+          {txns.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[var(--line)] bg-white p-14 text-center">
+              <Package className="mx-auto text-[#9aa9a1]" size={32} />
+              <h2 className="mt-4 font-bold">No paid orders yet</h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">Revenue transactions appear once you confirm incoming payments.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {Array.from(byOrder.entries()).map(([orderId, lines]) => {
+                const total = lines.reduce((s, l) => s + l.amount, 0);
+                const commission = lines.reduce((s, l) => s + l.commission_amount, 0);
+                const released = lines.every((l) => l.status === "released");
+                return (
+                  <Card key={orderId}>
+                    <CardContent className="p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-[#e8f4ed] text-[var(--teal)]">
+                            <Package size={18} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-[var(--ink)]">Order #{orderId.slice(0, 8)}</p>
+                            <p className="text-[10px] text-[var(--muted)]">
+                              {lines.length} seller line{lines.length > 1 ? "s" : ""} · {new Date(lines[0].created_at).toLocaleDateString()}
+                            </p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-[var(--ink)]">Net {rwf(line.seller_earning)}</p>
-                          <p className="text-[10px] text-[var(--coral)]">-{rwf(line.commission_amount)} commission</p>
+                        <div className="flex items-center gap-2">
+                          <StatusBadge value={released ? "delivered" : "active"} />
+                          <span className="text-sm font-extrabold text-[var(--ink)]">{rwf(total)}</span>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                  <p className="mt-2 border-t border-[#eff1ef] pt-2 text-[11px] text-[var(--muted)]">
-                    Order commission total: <b className="text-[var(--ink)]">{rwf(commission)}</b>
-                  </p>
-                  <button
-                    onClick={() => void toggleBreakdown(orderId)}
-                    className="mt-3 text-[11px] font-bold text-[var(--teal)] hover:underline"
-                  >
-                    {expandedOrder === orderId ? "Hide breakdown" : "View breakdown &amp; summary"}
-                  </button>
-                  {expandedOrder === orderId && (
-                    <div className="mt-3 rounded-xl border border-[var(--line)] bg-[#f9fbf9] p-4">
-                      {detailLoading ? (
-                        <p className="text-xs text-[var(--muted)]">Loading breakdown…</p>
-                      ) : summary && breakdown ? (
-                        <div className="space-y-3">
-                          <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="mt-3 divide-y divide-[#eff1ef]">
+                        {lines.map((line) => (
+                          <div key={line.id} className="flex items-center justify-between py-2 text-xs">
                             <div>
-                              <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Gross</p>
-                              <p className="mt-1 text-sm font-extrabold text-[var(--ink)]">{rwf(summary.total_gross)}</p>
+                              <p className="font-semibold text-[var(--ink)]">Seller {line.seller_id.slice(0, 8)}</p>
+                              <p className="text-[10px] text-[var(--muted)]">
+                                Rate {line.revenue_rate}% · {line.status}
+                              </p>
                             </div>
-                            <div>
-                              <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Commission</p>
-                              <p className="mt-1 text-sm font-extrabold text-[var(--coral)]">{rwf(summary.total_commission)}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Seller net</p>
-                              <p className="mt-1 text-sm font-extrabold text-[var(--teal)]">{rwf(summary.total_seller_earning)}</p>
+                            <div className="text-right">
+                              <p className="font-bold text-[var(--ink)]">Net {rwf(line.seller_earning)}</p>
+                              <p className="text-[10px] text-[var(--coral)]">-{rwf(line.commission_amount)} commission</p>
                             </div>
                           </div>
-                          <div className="border-t border-[var(--line)] pt-2">
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Per-seller breakdown</p>
-                            {breakdown.map((line) => (
-                              <div key={line.id} className="flex items-center justify-between py-1.5 text-xs">
+                        ))}
+                      </div>
+                      <p className="mt-2 border-t border-[#eff1ef] pt-2 text-[11px] text-[var(--muted)]">
+                        Order commission total: <b className="text-[var(--ink)]">{rwf(commission)}</b>
+                      </p>
+                      <button
+                        onClick={() => void toggleBreakdown(orderId)}
+                        className="mt-3 text-[11px] font-bold text-[var(--teal)] hover:underline"
+                      >
+                        {expandedOrder === orderId ? "Hide breakdown" : "View breakdown &amp; summary"}
+                      </button>
+                      {expandedOrder === orderId && (
+                        <div className="mt-3 rounded-xl border border-[var(--line)] bg-[#f9fbf9] p-4">
+                          {detailLoading ? (
+                            <p className="text-xs text-[var(--muted)]">Loading breakdown…</p>
+                          ) : summary && breakdown ? (
+                            <div className="space-y-3">
+                              <div className="grid gap-3 sm:grid-cols-3">
                                 <div>
-                                  <p className="font-semibold text-[var(--ink)]">Seller {line.seller_id.slice(0, 8)}</p>
-                                  <p className="text-[10px] text-[var(--muted)]">
-                                    Rate {line.revenue_rate}% · {line.status}{line.released_at ? ` · released ${new Date(line.released_at).toLocaleDateString()}` : ""}
-                                  </p>
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Gross</p>
+                                  <p className="mt-1 text-sm font-extrabold text-[var(--ink)]">{rwf(summary.total_gross)}</p>
                                 </div>
-                                <div className="text-right">
-                                  <p className="font-bold text-[var(--ink)]">Net {rwf(line.seller_earning)}</p>
-                                  <p className="text-[10px] text-[var(--coral)]">-{rwf(line.commission_amount)} commission</p>
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Commission</p>
+                                  <p className="mt-1 text-sm font-extrabold text-[var(--coral)]">{rwf(summary.total_commission)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Seller net</p>
+                                  <p className="mt-1 text-sm font-extrabold text-[var(--teal)]">{rwf(summary.total_seller_earning)}</p>
                                 </div>
                               </div>
-                            ))}
-                          </div>
+                              <div className="border-t border-[var(--line)] pt-2">
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Per-seller breakdown</p>
+                                {breakdown.map((line) => (
+                                  <div key={line.id} className="flex items-center justify-between py-1.5 text-xs">
+                                    <div>
+                                      <p className="font-semibold text-[var(--ink)]">Seller {line.seller_id.slice(0, 8)}</p>
+                                      <p className="text-[10px] text-[var(--muted)]">
+                                        Rate {line.revenue_rate}% · {line.status}{line.released_at ? ` · released ${new Date(line.released_at).toLocaleDateString()}` : ""}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="font-bold text-[var(--ink)]">Net {rwf(line.seller_earning)}</p>
+                                      <p className="text-[10px] text-[var(--coral)]">-{rwf(line.commission_amount)} commission</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[var(--coral)]">Breakdown unavailable.</p>
+                          )}
                         </div>
-                      ) : (
-                        <p className="text-xs text-[var(--coral)]">Breakdown unavailable.</p>
                       )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

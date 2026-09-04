@@ -7,3 +7,4 @@ export * from "./payment.service";
 export * from "./product.service";
 export * from "./revenue.service";
 export * from "./seller.service";
+export * from "./wallet.service";

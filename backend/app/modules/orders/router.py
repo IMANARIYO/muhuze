@@ -2,11 +2,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, status
 
-from app.modules.auth.dependencies import get_current_account
+from app.modules.auth.dependencies import get_current_account, require_role
 from app.modules.auth.models import Account
 from app.modules.orders.controller import OrderController
 from app.modules.orders.dependencies import get_order_controller
 from app.modules.orders.schemas import (
+    AdminOrderSummaryResponse,
     CheckoutRequest,
     OrderDetailResponse,
     OrderSummaryResponse,
@@ -38,6 +39,17 @@ async def list_orders(
 ) -> APIResponse[list[OrderSummaryResponse]]:
     """The caller's orders, newest first."""
     orders = await controller.list_orders(account)
+    return success_response(data=orders, message="Orders retrieved")
+
+
+@router.get("/admin")
+async def list_all_orders(
+    admin: Account = Depends(require_role("admin")),
+    controller: OrderController = Depends(get_order_controller),
+) -> APIResponse[list[AdminOrderSummaryResponse]]:
+    """Every order across the marketplace, newest first (admin). Includes
+    orders still awaiting admin confirmation of the incoming MoMo."""
+    orders = await controller.list_all_orders(admin)
     return success_response(data=orders, message="Orders retrieved")
 
 

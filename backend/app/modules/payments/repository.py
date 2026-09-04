@@ -50,6 +50,14 @@ class PaymentRepository:
         await self.db.refresh(payment)
         return payment
 
+    async def mark_awaiting(self, payment: Payment) -> Payment:
+        from app.modules.payments.models import PaymentStatus
+
+        payment.status = PaymentStatus.AWAITING
+        await self.db.flush()
+        await self.db.refresh(payment)
+        return payment
+
     async def mark_paid(
         self, payment: Payment, *, paid_at
     ) -> Payment:
