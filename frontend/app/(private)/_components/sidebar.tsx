@@ -21,6 +21,7 @@ import {
   UserCheck,
   Users,
   Wallet,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/app/_components/ui/button";
 import { cn } from "@/app/lib/utils";
@@ -47,6 +48,7 @@ const iconMap: Record<string, React.ComponentType<{ size?: number }>> = {
   User,
   UserCheck,
   Settings,
+  TrendingUp,
 };
 
 interface SidebarProps {

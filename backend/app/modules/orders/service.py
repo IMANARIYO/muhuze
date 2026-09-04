@@ -137,6 +137,9 @@ class OrderService:
     async def list_for_account(self, account_id: uuid.UUID) -> list[Order]:
         return await self.orders.list_for_account(account_id)
 
+    async def list_all_orders(self) -> list[Order]:
+        return await self.orders.list_all()
+
     async def receive(
         self, buyer_account_id: uuid.UUID, order_id: uuid.UUID
     ) -> Order:

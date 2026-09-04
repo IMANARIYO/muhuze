@@ -13,13 +13,18 @@ class PaymentStatus(StrEnum):
     """Lifecycle of a single payment.
 
     `pending` → the payment intent exists but money hasn't cleared.
-    `paid` → money received (this is the exact moment the MUHUZE commission
-    split is derived into `revenue_transactions`).
+    `awaiting` → the buyer reported that they sent the money outside the app
+    (MoMo USSD/app); MUHUZE has not yet verified receipt. No revenue is
+    derived yet and no seller orders are opened at this point.
+    `paid` → MUHUZE admin confirmed the money actually arrived. This is the
+    exact moment the commission split is derived into `revenue_transactions`
+    and the sellers' `seller_order`s are opened.
     `failed` → the payment attempt failed; the order remains unpaid.
     `refunded` / `partially_refunded` → reversal states (Phase 2 engines).
     """
 
     PENDING = "pending"
+    AWAITING = "awaiting"
     PAID = "paid"
     FAILED = "failed"
     REFUNDED = "refunded"

@@ -18,6 +18,7 @@ from app.modules.products.router import (
 from app.modules.revenue.router import router as revenue_router
 from app.modules.sellers.router import router as sellers_router
 from app.modules.users.router import router as users_router
+from app.modules.wallets.router import router as wallets_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -37,3 +38,4 @@ api_router.include_router(fulfillment_router)
 api_router.include_router(orders_router)
 api_router.include_router(payments_router)
 api_router.include_router(revenue_router)
+api_router.include_router(wallets_router)

@@ -38,6 +38,15 @@ export interface ShipmentResponse {
   notes: string | null;
 }
 
+export interface SellerOrderItemResponse {
+  listing_id: string;
+  product_name: string;
+  variant_name: string | null;
+  unit_price: number;
+  quantity: number;
+  subtotal: number;
+}
+
 export interface SellerOrderResponse {
   id: string;
   order_id: string;
@@ -50,6 +59,15 @@ export interface SellerOrderResponse {
   created_at: string;
   updated_at: string;
   shipment: ShipmentResponse | null;
+  order_number: string | null;
+  payment_status: string | null;
+  currency: string;
+  gross: number;
+  commission_amount: number;
+  seller_net: number;
+  revenue_rate: number;
+  revenue_status: string | null;
+  items: SellerOrderItemResponse[];
 }
 
 export interface OrderDetailResponse {
@@ -81,6 +99,11 @@ export interface OrderSummaryResponse {
   total_amount: number;
   currency: string;
   created_at: string;
+}
+
+export interface AdminOrderSummaryResponse extends OrderSummaryResponse {
+  payment_id: string | null;
+  payment_status_detail: string | null;
 }
 
 export interface ShippingInput {
@@ -117,6 +140,9 @@ export const orderService = {
   },
   listMine() {
     return unwrap(api.get<ApiResponse<OrderSummaryResponse[]>>("/orders"), "Your orders could not be loaded.");
+  },
+  listAll() {
+    return unwrap(api.get<ApiResponse<AdminOrderSummaryResponse[]>>("/orders/admin"), "Orders could not be loaded.");
   },
   get(orderId: string) {
     return unwrap(api.get<ApiResponse<OrderDetailResponse>>(`/orders/${orderId}`), "Order could not be loaded.");

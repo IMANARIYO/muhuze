@@ -29,12 +29,12 @@ class PaymentController:
         )
         return PaymentResponse.model_validate(payment)
 
-    async def mark_paid(
-        self, payment_id: uuid.UUID, provider_ref: str | None = None
-    ) -> PaidPaymentResponse:
-        payment, revenue_count = await self.service.mark_paid(
-            payment_id, provider_ref=provider_ref
-        )
+    async def report_paid(self, payment_id: uuid.UUID) -> PaymentResponse:
+        payment = await self.service.report_paid(payment_id)
+        return PaymentResponse.model_validate(payment)
+
+    async def confirm_paid(self, payment_id: uuid.UUID) -> PaidPaymentResponse:
+        payment, revenue_count = await self.service.confirm_paid(payment_id)
         response = PaymentResponse.model_validate(payment)
         return PaidPaymentResponse(
             **response.model_dump(), revenue=revenue_count

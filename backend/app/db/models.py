@@ -42,3 +42,8 @@ from app.modules.products.models import (  # noqa: F401
 from app.modules.revenue.models import RevenueTransaction  # noqa: F401
 from app.modules.sellers.models import Seller, SellerDocument  # noqa: F401
 from app.modules.users.models import Profile  # noqa: F401
+from app.modules.wallets.models import (  # noqa: F401
+    Wallet,
+    WalletTransaction,
+    WithdrawalRequest,
+)

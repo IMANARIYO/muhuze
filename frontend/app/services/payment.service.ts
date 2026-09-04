@@ -21,8 +21,8 @@ export interface PaidPaymentResponse extends PaymentResponse {
 
 export interface CreatePaymentInput {
   order_id: string;
-  momo_phone: string;
-  airtel_phone: string;
+  momo_phone?: string;
+  airtel_phone?: string;
   method?: string;
 }
 
@@ -36,8 +36,11 @@ export const paymentService = {
   create(input: CreatePaymentInput) {
     return unwrap(api.post<ApiResponse<PaymentResponse>>("/payments", input), "Payment could not be started.");
   },
-  markPaid(paymentId: string, providerRef?: string) {
-    return unwrap(api.post<ApiResponse<PaidPaymentResponse>>(`/payments/${paymentId}/paid`, providerRef ? { provider_ref: providerRef } : {}), "Payment could not be confirmed.");
+  reportPaid(paymentId: string) {
+    return unwrap(api.post<ApiResponse<PaymentResponse>>(`/payments/${paymentId}/paid`, {}), "Payment could not be reported.");
+  },
+  confirmPaid(paymentId: string) {
+    return unwrap(api.post<ApiResponse<PaidPaymentResponse>>(`/payments/${paymentId}/confirm`, {}), "Payment could not be confirmed.");
   },
   markFailed(paymentId: string) {
     return unwrap(api.post<ApiResponse<PaymentResponse>>(`/payments/${paymentId}/failed`, {}), "Payment could not be marked as failed.");
