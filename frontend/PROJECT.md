@@ -1,33 +1,34 @@
-# Muhuze v2 — Project Guide
+# Muhuze — Frontend Guide
 
-This file is the single source of truth for the project: what we are building, the rules every change must follow, and the progress log. **Read it before starting any task, and update section 9 (Progress) after finishing one.**
+This file is the guide for **frontend** work: the rules every frontend change must follow, the structure, the design direction, and the progress log. **Business rules live only in the root [`README.md`](../README.md).** Read both before starting any task, and update section 9 (Progress) after finishing one.
 
 ---
 
 ## 1. Overview
 
-Muhuze is a **social marketplace**: a platform where many people meet around products, the way they meet around posts on social media. Any seller can join and list something; any buyer can browse, save, and contact or buy; anyone can invite others and earn from it.
+> **Business rules are not defined here.** What MUHUZE does — products, orders, payments, seller plans, commissions, wallets, withdrawals, referrals — is specified only in the root [`README.md`](../README.md), the single source of truth for business rules across the repository. This guide covers **how the frontend is built**. If a screen needs a business rule that the README doesn't confirm, don't invent it: add it to README §20 (Open Business Decisions) and ask.
 
-- **Frontend only.** This repository is a React + TypeScript single-page app. All data comes from a **Python backend over HTTP APIs**. No business logic that must be trusted (prices, commissions, permissions, hidden contacts) is decided in the frontend — the frontend only displays what the API returns and sends requests.
-- **Three pillars:** multi-type products, subscriptions, referrals — plus wallets and social engagement features that tie them together.
+- **Frontend only.** This folder is a React + TypeScript single-page app. All data comes from the **Python backend** (`../backend`) over HTTP. Nothing that must be trusted (prices, totals, commissions, permissions, balances, hidden contacts, payment status) is decided in the frontend. The frontend displays what the API returns and sends requests.
+- **API contract:** every backend response uses one envelope, `{ success, data, message, status_code }`, plus an `X-Request-ID` header. See [`../backend/docs/api/response-format.md`](../backend/docs/api/response-format.md). The API client must unwrap `data` and surface `message` on errors.
 
 ---
 
-## 2. Users, roles and permissions
+## 2. Access control and layouts
 
-- There is **one `User` model**. There are no separate admin / seller / buyer models.
-- **Roles are dynamic.** Admin, seller and buyer are only the starting roles. An admin can create a new role at any time.
-- **Permissions are predefined** (a fixed list provided by the backend, e.g. `product.create`, `subscription.manage`). An admin cannot invent permissions, only **assign** existing ones to a role.
-- The UI must therefore **check permissions, never role names**. Write `can('product.create')`, never `role === 'seller'`. A role created tomorrow must work without a code change.
+These are UI rules. The roles, permissions, and ownership rules themselves are defined by the backend (README §5.4).
+
+- **Roles are dynamic**: an admin can create new roles. **Permissions are a fixed, backend-defined list**; admins only assign them to roles.
+- The UI therefore **checks permissions, never role names**. Write `can('<permission>')`, never `role === 'seller'`. A role created tomorrow must work without a code change. The permission naming convention is still open (README §20, `I2`).
+- Hiding a button is never security. The API enforces every permission, and the UI only reflects it.
 
 ### Layout per kind of user
 
 | User | Layout |
 |---|---|
 | Buyer (no management permissions) | Public storefront layout: top navigation only. **Never a sidebar/dashboard.** |
-| Admin, seller, and any role with management permissions | **One shared dashboard** with one sidebar and one topbar. Sidebar items, pages and actions are shown or hidden by permission. |
+| Admin, seller, and any role with management permissions | **One shared dashboard** with one sidebar and one topbar. Sidebar items, pages, and actions are shown or hidden by permission. |
 
-There is exactly one dashboard and one sidebar in the codebase — not one per role.
+There is exactly one dashboard and one sidebar in the codebase, not one per role.
 
 ### Platform scope and own scope
 
@@ -49,53 +50,15 @@ A sidebar link lists the permissions that open it (`permissions: ['product.manag
 
 ## 3. Features
 
-### 3.1 Multi-type products
+The features and their rules are listed in the root README. Building a screen for a feature means following the README's confirmed rules for it.
 
-Every listing has a **product type**, which changes its fields, its call to action and how the platform earns from it.
+The demo UI built so far (section 9) also shows ideas that are **not yet confirmed** in the README: multiple product types (sale/rental/service), contact hiding tied to subscriptions, an admin wallet, referral earnings for every user, engagement counters, and languages. These are tracked in README §20 as `X1`–`X7`. Don't extend them further until they're decided, and change the UI to match whatever is decided.
 
-| Type | Examples | Buyer action | Platform earns via |
-|---|---|---|---|
-| **Sale** | Phones, electronics, goods | Buy | Commission on the price |
-| **Rental** | Houses, cars | Rent / contact owner | Subscription |
-| **Service** | Job applications on web, haircuts, cooking | Book / contact provider | Subscription |
+UI principles that still apply whatever is decided:
 
-Shared parts (title, images, seller, category, engagement counters) are common; only the type-specific parts differ. Build one product card and one product form with type-specific sections, not three copies.
-
-### 3.2 Subscriptions and platform profit
-
-The platform earns in two ways, and the admin controls both:
-
-1. **Commission** — for sale products, the platform takes a percentage of the price (e.g. **12%** on a phone). The rate is a setting, not a hard-coded number.
-2. **Subscription** — mainly for rental and service sellers, where there is no in-app sale price to take a cut from. The seller pays a plan to be reachable.
-
-Rules:
-
-- Subscription management is **fully dynamic**: the admin creates plans with any **amount** and any **duration** (and can edit or disable them).
-- The admin can **require a subscription from any seller**, whatever they sell — including sale sellers — or exempt a seller.
-- When a seller is required to subscribe and has **no active subscription**, their **contact info is hidden** from buyers. It is shown again once the subscription is paid.
-- The hidden contact must be withheld **by the API**. The frontend shows a locked state when the field is absent; it must never receive the contact and hide it with CSS.
-
-### 3.3 Referrals
-
-- **Every user** has a personal referral link they can share outside the app.
-- People who arrive through that link and register are linked to the referrer.
-- When a referred person **buys or sells**, the referrer earns a **commission rate on that transaction**.
-- Users see their link, the people they referred, and what they earned.
-
-### 3.4 Wallets
-
-- **Admin and sellers have wallets.**
-- At this startup stage, balances are **numbers only (ledger money)**. Real money moves **outside the app**; the wallet records what is owed and what was settled.
-- The UI must make this clear and must not look like a real payment/withdrawal product yet.
-
-### 3.5 Social and engagement
-
-Because the app connects many people around many kinds of products, engagement signals are a core feature, not decoration:
-
-- **Wishlist** — save a product for later.
-- **View count** — how many people viewed a listing.
-- **Usage counters** — how many bought / rented / booked / contacted.
-- Used to drive trust and discovery: "popular", "trending", "most viewed" sections and sorting.
+- Build **one** product card and **one** product form, with sections that vary by product data, never several copies.
+- Withheld data, such as a hidden contact, is **absent from the API response**. The UI shows a locked state when the field is missing, and never receives data only to hide it with CSS.
+- Wallet screens show the ledger the backend returns. Recording an earning is not paying the seller (README §2, "The core money principle").
 
 ---
 
@@ -210,13 +173,7 @@ Fonts and palette are a proposal and can be adjusted before the theme is impleme
 
 ## 8. Open questions
 
-To be answered before the related feature is built:
-
-1. **Referrer earnings** — only admin and sellers have wallets, but any user (including buyers) can earn referral commission. Where is a buyer's commission recorded — do all users get a wallet, or a separate "earnings" balance?
-2. **Referral commission source** — is it taken from the platform's share, or added on top?
-3. **Muhuze payment account** — which mobile-money number do buyers and subscribing sellers send money to? It is not shown anywhere yet.
-4. **Backend** — base URL, authentication method (JWT / cookie), and the predefined permission list.
-5. **Languages** — English only, or also Kinyarwanda / French?
+Business questions (referrer earnings, referral funding, buying flow, languages, authentication method, permission list) have moved to README §20 (`X1`–`X7`, `I1`–`I3`, `F1`), so every team works from one list. Add **frontend-only** questions here.
 
 ---
 
@@ -252,6 +209,7 @@ To be answered before the related feature is built:
 - [x] Animation system in `src/index.css`: `animate-float`, `animate-blob`, `animate-rise`, `reveal` (scroll), `stagger`
 
 ### Temporary — remove when the backend is connected
+- `lib/api.ts` returns the raw response body and throws `status statusText` on errors. It must unwrap the `{ success, data, message, status_code }` envelope and surface `message` once it calls the real backend.
 - `services/auth.ts` returns a demo admin or a demo seller while `VITE_API_URL` is not set; the Admin / Seller switch in the dashboard topbar (`RoleSwitch`) swaps them and disappears once the API is connected.
 - Permission names (`dashboard.view`, `product.manage`…) and the `/auth/me` endpoint are placeholders until the backend list is known.
 - Dashboard pages keep their data in memory through `lib/demo-store.ts` (`_data.ts` files); changes are lost on reload. Replace each store with API queries and mutations.
@@ -281,6 +239,7 @@ To be answered before the related feature is built:
 | 2026-10-01 | Foundation implemented: shadcn, theme, router, layouts, API client, session and permissions |
 | 2026-10-01 | Buyer side redesigned: marketplace header, 3D animated hero, product browse, detail and wishlist |
 | 2026-10-01 | Dashboard built: sidebar, topbar and seven working pages on demo data |
+| 2026-10-04 | Business rules moved to the root README (single source of truth); this guide now covers frontend rules only. Unconfirmed business ideas tracked as README §20 `X1`–`X7`, `I1`–`I3` |
 | 2026-10-05 | Header and footer reworked: highlights moved into the header, profile menu, social links; rule 20 added |
 | 2026-10-05 | Hero location search and count-up statistics; cart with buy buttons, header icon and cart page |
 | 2026-10-05 | Checkout with delivery details; payment happens outside the app |
