@@ -1,0 +1,184 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: 'Plus Jakarta Sans Variable', sans-serif;
+    --color-highlight: var(--highlight);
+    --color-highlight-foreground: var(--highlight-foreground);
+    --font-sans: 'Inter Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --background: oklch(0.99 0.004 165);
+    --foreground: oklch(0.21 0.03 220);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.21 0.03 220);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.21 0.03 220);
+    --primary: oklch(0.52 0.12 165);
+    --primary-foreground: oklch(0.99 0.01 165);
+    --secondary: oklch(0.96 0.015 165);
+    --secondary-foreground: oklch(0.3 0.06 165);
+    --muted: oklch(0.965 0.008 200);
+    --muted-foreground: oklch(0.5 0.025 220);
+    --accent: oklch(0.95 0.03 165);
+    --accent-foreground: oklch(0.3 0.07 165);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.92 0.01 200);
+    --input: oklch(0.92 0.01 200);
+    --ring: oklch(0.52 0.12 165);
+    --chart-1: #0f8a63;
+    --chart-2: #c97a10;
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --highlight: oklch(0.8 0.16 75);
+    --highlight-foreground: oklch(0.25 0.06 70);
+    --radius: 0.75rem;
+    --sidebar: oklch(0.98 0.006 165);
+    --sidebar-foreground: oklch(0.21 0.03 220);
+    --sidebar-primary: oklch(0.52 0.12 165);
+    --sidebar-primary-foreground: oklch(0.99 0.01 165);
+    --sidebar-accent: oklch(0.94 0.035 165);
+    --sidebar-accent-foreground: oklch(0.3 0.07 165);
+    --sidebar-border: oklch(0.92 0.01 200);
+    --sidebar-ring: oklch(0.52 0.12 165);
+}
+
+.dark {
+    --background: oklch(0.17 0.02 200);
+    --foreground: oklch(0.97 0.005 165);
+    --card: oklch(0.21 0.022 200);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.21 0.022 200);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.7 0.14 165);
+    --primary-foreground: oklch(0.17 0.03 165);
+    --secondary: oklch(0.27 0.025 200);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.27 0.025 200);
+    --muted-foreground: oklch(0.72 0.02 200);
+    --accent: oklch(0.3 0.05 165);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.7 0.14 165);
+    --chart-1: #22a67c;
+    --chart-2: #c98420;
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --highlight: oklch(0.82 0.15 78);
+    --highlight-foreground: oklch(0.25 0.06 70);
+    --sidebar: oklch(0.2 0.022 200);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.7 0.14 165);
+    --sidebar-primary-foreground: oklch(0.17 0.03 165);
+    --sidebar-accent: oklch(0.3 0.05 165);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.7 0.14 165);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}
+
+@theme {
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-float-slow: float 9s ease-in-out infinite reverse;
+  --animate-blob: blob 14s ease-in-out infinite;
+  --animate-rise: rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-spin-slow: spin 28s linear infinite;
+
+  @keyframes float {
+    50% { transform: translateY(-16px) rotate(1.5deg); }
+  }
+  @keyframes blob {
+    33% { transform: translate(6%, -8%) scale(1.12); }
+    66% { transform: translate(-6%, 6%) scale(0.92); }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(28px); }
+  }
+}
+
+/* Fades a section in as it scrolls into view. No JavaScript; static where unsupported. */
+@utility reveal {
+  @supports (animation-timeline: view()) {
+    animation: rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 45%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Children rise in one after another. */
+@utility stagger {
+  & > * { animation: var(--animate-rise); }
+  & > :nth-child(2) { animation-delay: 60ms; }
+  & > :nth-child(3) { animation-delay: 120ms; }
+  & > :nth-child(4) { animation-delay: 180ms; }
+  & > :nth-child(5) { animation-delay: 240ms; }
+  & > :nth-child(6) { animation-delay: 300ms; }
+  & > :nth-child(7) { animation-delay: 360ms; }
+  & > :nth-child(n + 8) { animation-delay: 420ms; }
+}
