@@ -1,5 +1,15 @@
 # Rules for AI Assistants Working in This Repo
 
+## Where the rules live — read before changing anything
+
+| What | Source of truth |
+|---|---|
+| **Business rules** (what MUHUZE does: products, orders, payments, plans, commission, wallets, withdrawals, referrals) | [`README.md`](README.md), the **only** place business rules are defined, for backend and frontend alike |
+| How backend code is written | [`backend/AGENTS.md`](backend/AGENTS.md) |
+| How frontend code is written | [`frontend/PROJECT.md`](frontend/PROJECT.md) |
+
+Area guides link to the README instead of restating business rules. If you find a business rule that isn't in the README, or two documents that disagree, don't pick one: report it and add it to README §20 (Open Business Decisions).
+
 ## Never run the test suite yourself — give the user the command
 
 Always hand over the exact command and let the user run it themselves. Do not run the test suite proactively, and do not re-run it after every small edit to "verify" — that habit is exactly what this rule exists to stop.
