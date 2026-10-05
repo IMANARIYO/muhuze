@@ -1,8 +1,9 @@
-import { Eye, TrendingUp } from 'lucide-react'
+import { Eye, MapPin, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { formatCount, formatPrice, typeLabels } from '@/lib/format'
 import type { Product } from '@/types/product'
+import { CartButton } from './CartButton'
 import { WishlistButton } from './WishlistButton'
 
 export function ProductCard({ product }: { product: Product }) {
@@ -32,12 +33,14 @@ export function ProductCard({ product }: { product: Product }) {
           {formatPrice(product.price)}
           {product.unit && <span className="text-xs font-normal text-muted-foreground"> / {product.unit}</span>}
         </p>
-        <div className="mt-auto flex items-center gap-4 pt-2 text-xs text-muted-foreground">
+        <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><MapPin className="size-3.5" />{product.location}</span>
           <span className="flex items-center gap-1"><Eye className="size-3.5" />{formatCount(product.views)}</span>
           <span className="flex items-center gap-1">
             <TrendingUp className="size-3.5" />{formatCount(product.uses)} {labels.used}
           </span>
         </div>
+        <CartButton product={product} className="mt-3 w-full" />
       </div>
     </Link>
   )

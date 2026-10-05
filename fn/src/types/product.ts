@@ -9,6 +9,8 @@ export interface Product {
   title: string
   type: ProductType
   category: string
+  /** Town or district where the listing is available. */
+  location: string
   price: number
   /** Billing period for rentals and services, e.g. "month". */
   unit?: string
@@ -27,4 +29,5 @@ export interface Product {
 export interface ProductFilters {
   type?: ProductType
   q?: string
+  location?: string
 }

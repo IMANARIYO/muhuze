@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail --names frontend,backend --prefix-colors green,blue \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "dev:frontend": "npm --prefix frontend run dev",
+    "dev": "npm run dev:frontend",
+    "dev:all": "concurrently --kill-others-on-fail --names frontend,backend --prefix-colors green,blue \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "npm --prefix fn run dev",
     "dev:backend": "node scripts/run-backend.cjs",
-    "build": "npm --prefix frontend run build",
-    "lint": "npm --prefix frontend run lint",
-    "typecheck": "npm --prefix frontend exec tsc -- --noEmit",
+    "install:frontend": "npm --prefix fn install",
+    "build": "npm --prefix fn run build",
+    "preview": "npm --prefix fn run preview",
+    "lint": "npm --prefix fn run lint",
+    "typecheck": "npm --prefix fn exec tsc -- -b",
     "test:backend": "uv run --directory backend pytest -q"
   },
   "devDependencies": {

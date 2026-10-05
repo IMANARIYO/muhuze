@@ -113,6 +113,7 @@ Because the app connects many people around many kinds of products, engagement s
 ### Structure
 18. Related things live together. A folder owns its private parts in `_components`, `_hooks`, `_types`; only things used by **two or more** areas go to the global folders.
 19. Access control is by **permission**, never by role name (see section 2).
+20. **Pages fetch, components receive.** Server data is requested only in a page file (`pages/**/index.tsx`, `detail.tsx`) or a layout — never inside a reusable component. Reusable components (`_components`, `components/shared`) take their data through props and hold only interactive state. This is the Vite equivalent of "server-component page, `use client` components": this app is a client-rendered SPA, so there are no server components and `'use client'` has no effect here; the rule keeps the same separation so pages can move to server rendering later without rewriting components.
 
 ---
 
@@ -219,9 +220,13 @@ To be answered before the related feature is built:
 - [x] Dashboard shell: grouped sidebar with user menu, topbar with dark-mode toggle and notifications, per-page permission guard
 - [x] Dashboard pages on demo data: Overview (stats, revenue chart), Products, Subscriptions (rates, plans, sellers), Referrals, Wallet, Users, Roles & permissions
 - [x] Dashboard building blocks in `pages/dashboard/_components`: `DataTable`, `FormDialog`, `RowActions`, `StatCard`, `StatusBadge`, `PageHeader`
-- [x] Marketplace header (search, wishlist count, type links) and footer
+- [x] Marketplace header: search, wishlist count, type links, trust highlights, profile menu (email, referral link, theme, dashboard)
+- [x] Footer with brand, the same links as the header, and social links
 - [x] Home page: animated 3D hero, type banners, trending grid with tabs, highlights, referral banner
 - [x] Products: browse page (search + type filter) and detail page with locked seller contact
+- [x] Hero: location search (`/products?location=`), statistics that count up in three seconds
+- [x] Cart (saved in the browser): buy button on every card and on the detail page, header cart icon, `/cart` page
+- [x] Checkout (`/checkout`): receiver, delivery address (province, district, sector, cell) and the number the buyer pays from; confirmation with an order reference
 - [x] Wishlist (saved in the browser), view and usage counters on cards
 - [x] Animation system in `src/index.css`: `animate-float`, `animate-blob`, `animate-rise`, `reveal` (scroll), `stagger`
 
@@ -231,12 +236,15 @@ To be answered before the related feature is built:
 - Dashboard pages keep their data in memory through `lib/demo-store.ts` (`_data.ts` files); changes are lost on reload. Replace each store with API queries and mutations.
 - Dashboard listings are not linked to the storefront listings yet.
 - `services/products.demo.ts` supplies demo listings (Unsplash photos) while `VITE_API_URL` is not set.
-- The wishlist is stored in `localStorage` until a backend endpoint exists.
-- Hero statistics (12k+ listings…) and the floating chips are placeholder numbers.
+- The wishlist and the cart are stored in `localStorage` (`lib/id-store.ts`) until backend endpoints exist.
+- `services/orders.ts` returns a demo reference and total while `VITE_API_URL` is not set: orders are not saved anywhere and `POST /orders` is a placeholder endpoint.
+- Listing locations are demo towns; the location search matches the typed text, not real distance.
+- Footer social links point to `#` until the real Muhuze accounts are known.
+- The referral code (`DEMO2026`) comes from the demo user; the `/r/:code` landing route does not exist yet.
+- Hero statistics (15K+ products…) and the floating chips are placeholder numbers.
 
 ### Next
 - [ ] Auth pages (login, register) once the backend auth method is known
-- [ ] Dark mode toggle on the storefront header
 - [ ] Connect dashboard pages to the backend, one resource at a time
 - [ ] Seller view of the dashboard (own listings, own wallet, own subscription)
 
@@ -251,3 +259,6 @@ To be answered before the related feature is built:
 | 2026-10-01 | Foundation implemented: shadcn, theme, router, layouts, API client, session and permissions |
 | 2026-10-01 | Buyer side redesigned: marketplace header, 3D animated hero, product browse, detail and wishlist |
 | 2026-10-01 | Dashboard built: sidebar, topbar and seven working pages on demo data |
+| 2026-10-05 | Header and footer reworked: highlights moved into the header, profile menu, social links; rule 20 added |
+| 2026-10-05 | Hero location search and count-up statistics; cart with buy buttons, header icon and cart page |
+| 2026-10-05 | Checkout with delivery details; payment happens outside the app |

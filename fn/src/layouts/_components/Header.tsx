@@ -1,22 +1,26 @@
-import { Gift, Heart, LayoutDashboard } from 'lucide-react'
+import { Gift, Heart, ShoppingCart } from 'lucide-react'
 import { Link, NavLink } from 'react-router'
 import { Logo } from '@/components/shared/Logo'
 import { buttonVariants } from '@/components/ui/button'
-import { useSession } from '@/hooks/use-session'
-import { useWishlist } from '@/hooks/use-wishlist'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import type { User } from '@/types/user'
+import { features, links } from './nav'
+import { ProfileMenu } from './ProfileMenu'
 import { SearchBar } from './SearchBar'
 
-const links = [
-  { to: '/products', label: 'All products' },
-  { to: '/products?type=sale', label: 'Buy' },
-  { to: '/products?type=rental', label: 'Rent' },
-  { to: '/products?type=service', label: 'Services' },
-]
+interface HeaderProps {
+  user?: User
+  showDashboard: boolean
+  wishlistCount: number
+  cartCount: number
+}
 
-export function Header() {
-  const { can } = useSession()
-  const { ids } = useWishlist()
+export function Header({ user, showDashboard, wishlistCount, cartCount }: HeaderProps) {
+  const counters = [
+    { to: '/wishlist', label: 'Wishlist', icon: Heart, count: wishlistCount },
+    { to: '/cart', label: 'Cart', icon: ShoppingCart, count: cartCount },
+  ]
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-lg">
@@ -27,32 +31,42 @@ export function Header() {
         <Logo />
         <SearchBar className="order-last w-full md:order-none md:w-auto md:flex-1" />
         <div className="ml-auto flex items-center gap-1">
-          <Link to="/wishlist" aria-label="Wishlist" className={cn(buttonVariants({ variant: 'ghost', size: 'icon-lg' }), 'relative')}>
-            <Heart />
-            {ids.length > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-highlight text-[10px] font-bold text-highlight-foreground">
-                {ids.length}
-              </span>
-            )}
-          </Link>
-          {can('dashboard.view') && (
-            <Link to="/dashboard" className={buttonVariants({ size: 'lg' })}>
-              <LayoutDashboard /> <span className="hidden sm:inline">Dashboard</span>
+          {counters.map(({ to, label, icon: Icon, count }) => (
+            <Link key={to} to={to} aria-label={label} className={cn(buttonVariants({ variant: 'ghost', size: 'icon-lg' }), 'relative')}>
+              <Icon />
+              {count > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-highlight text-[10px] font-bold text-highlight-foreground">
+                  {count}
+                </span>
+              )}
             </Link>
-          )}
+          ))}
+          {user && <ProfileMenu user={user} showDashboard={showDashboard} />}
         </div>
       </div>
-      <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pb-2 text-sm font-medium">
-        {links.map((link) => (
-          <NavLink
-            key={link.to}
-            to={link.to}
-            className="rounded-full px-3 py-1 whitespace-nowrap text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
-          >
-            {link.label}
-          </NavLink>
-        ))}
-      </nav>
+      <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 pb-2 text-sm font-medium">
+        <nav className="flex gap-1">
+          {links.map((link) => (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              className="rounded-full px-3 py-1 whitespace-nowrap text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+            >
+              {link.label}
+            </NavLink>
+          ))}
+        </nav>
+        <ul className="ml-auto flex gap-5 pl-4">
+          {features.map(({ icon: Icon, title, text }) => (
+            <Tooltip key={title}>
+              <TooltipTrigger render={<li className="flex items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground" />}>
+                <Icon className="size-4 text-primary" /> {title}
+              </TooltipTrigger>
+              <TooltipContent>{text}</TooltipContent>
+            </Tooltip>
+          ))}
+        </ul>
+      </div>
     </header>
   )
 }

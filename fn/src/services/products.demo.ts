@@ -4,11 +4,14 @@ import type { Product } from '@/types/product'
 const img = (id: string) =>
   `https://images.unsplash.com/photo-${id}?w=640&q=70&auto=format&fit=crop`
 
+const places = ['Kigali', 'Musanze', 'Huye', 'Rubavu']
+
 const row = (
   id: number, title: string, type: Product['type'], category: string, price: number,
   image: string, views: number, uses: number, seller: string, contact: string | null, unit?: string,
 ): Product => ({
   id, title, type, category, price, unit, image: img(image), views, uses,
+  location: places[id % places.length],
   description: `${title} listed by ${seller}. Verified listing on Muhuze with fast response from the seller.`,
   seller: { name: seller, contact },
 })

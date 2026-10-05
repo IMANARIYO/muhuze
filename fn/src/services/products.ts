@@ -3,14 +3,17 @@ import type { Product, ProductFilters } from '@/types/product'
 
 const demo = async () => (await import('./products.demo')).demoProducts
 
-export async function getProducts({ type, q }: ProductFilters = {}): Promise<Product[]> {
+export async function getProducts({ type, q, location }: ProductFilters = {}): Promise<Product[]> {
   if (API_URL) {
-    const params = new URLSearchParams({ ...(type && { type }), ...(q && { q }) })
+    const params = new URLSearchParams({ ...(type && { type }), ...(q && { q }), ...(location && { location }) })
     return api<Product[]>(`/products?${params}`)
   }
   const term = q?.toLowerCase() ?? ''
+  const place = location?.toLowerCase() ?? ''
   return (await demo()).filter(
-    (p) => (!type || p.type === type) && `${p.title} ${p.category}`.toLowerCase().includes(term),
+    (p) => (!type || p.type === type)
+      && `${p.title} ${p.category}`.toLowerCase().includes(term)
+      && p.location.toLowerCase().includes(place),
   )
 }
 

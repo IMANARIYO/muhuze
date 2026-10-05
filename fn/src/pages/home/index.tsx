@@ -1,4 +1,5 @@
 import { useProducts } from '@/hooks/use-products'
+import { useSession } from '@/hooks/use-session'
 import { Hero } from './_components/Hero'
 import { Highlights } from './_components/Highlights'
 import { Trending } from './_components/Trending'
@@ -9,6 +10,7 @@ const heroIds = [1, 7, 10]
 
 export default function Home() {
   const { data: products } = useProducts()
+  const { user } = useSession()
   const featured = heroIds.flatMap((id) => products?.find((p) => p.id === id) ?? [])
 
   return (
@@ -16,7 +18,7 @@ export default function Home() {
       <Hero products={featured} />
       <TypeBanners products={products ?? []} />
       <Trending products={products} />
-      <Highlights />
+      <Highlights referralCode={user?.referralCode} />
     </main>
   )
 }

@@ -7,6 +7,7 @@ const demoUser: User = {
   name: 'Demo Admin',
   email: 'admin@muhuze.app',
   role: 'Admin',
+  referralCode: 'DEMO2026',
   permissions: [
     'dashboard.view', 'product.manage', 'subscription.manage',
     'referral.view', 'wallet.view', 'user.manage', 'role.manage',
