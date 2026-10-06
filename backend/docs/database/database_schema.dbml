@@ -19,6 +19,14 @@
 //   IMPLEMENTED — seller plans (seller_plans, seller_subscriptions,
 //     default_commission_rates):
 //     backend/app/modules/seller_plans/seller_plan_model.py + migration 0006.
+//   IMPLEMENTED — orders (orders, seller_orders, order_items,
+//     seller_order_events):
+//     backend/app/modules/orders/order_model.py + migration 0007.
+//   IMPLEMENTED — payments (payment_destinations, payments):
+//     backend/app/modules/payments/payment_model.py + migration 0008.
+//   IMPLEMENTED — wallets (revenue_transactions, wallets,
+//     wallet_transactions):
+//     backend/app/modules/wallets/wallet_model.py + migration 0009.
 // For implemented tables the models are the source of truth and this
 // file must mirror them exactly.
 //
@@ -38,9 +46,14 @@
 // Constraint names follow backend/app/core/database.py NAMING_CONVENTION
 // (pk_<table>, uq_<table>_<column>, fk_<table>_<column>_<referred table>, …).
 //
-// 21 tables so far: authentication + roles & permissions + sellers + categories
-// + products + seller plans.
-// Business rules behind these tables: ../../../README.md (§5.4, §7, §10, §15, §20).
+// 30 tables so far: authentication + roles & permissions + sellers + categories
+// + products + seller plans + orders + payments + wallets.
+// There are NO cart tables, by decision (README §20 X8): the cart lives in the
+// frontend, and checkout sends product ids and quantities.
+// There are NO inventory tables, by decision (README §20 K3): MUHUZE does not
+// track stock. A seller puts a product on the market by publishing it and
+// takes it off by archiving it.
+// Business rules behind these tables: ../../../README.md (§5.4, §7–§15, §20).
 
 // ── Accounts (authentication identity) ────────────────────────────────
 // ONE `accounts` row per human, regardless of what they do on MUHUZE. There
@@ -376,7 +389,8 @@ Table category_attribute_options {
 // Decided 2026-10-07 (README §7.4, §20 K1–K4, K8, T2):
 //   1. No variants: one product has one price.
 //   2. Attribute values are typed rows (below), not free-form JSON.
-//   3. No stock here; it comes with inventory (008).
+//   3. No stock, ever: MUHUZE does not manage inventory (K3). The seller
+//      archives a product that is no longer available.
 //   4. No approval step; staff can hide a product that breaks the rules.
 //   5. One currency for now: RWF.
 //   6. To publish: an active category, a value for every required
@@ -550,4 +564,302 @@ Table default_commission_rates {
   set_by_account_id uuid [ref: > accounts.id, note: 'the admin who set it; SET NULL']
   created_at timestamptz [not null]
   // Check: rate between 0 and 100
+}
+
+// ── Orders ────────────────────────────────────────────────────────────
+// One checkout = one `orders` row for the buyer, split into one
+// `seller_orders` row per shop involved, each holding its `order_items`.
+// README §8, §9, §11.
+//
+//     Order MHZ-000123        (the buyer's whole purchase; what gets paid)
+//       ├── SellerOrder  Amina Shop   (its own status, its own money split)
+//       │     ├── Galaxy S24 × 1
+//       │     └── Phone case × 2
+//       └── SellerOrder  Brian Shop
+//             └── Laptop × 1
+//
+// The frontend sends ONLY product ids and quantities (and where to deliver).
+// The backend reads every price itself and records a SNAPSHOT: the product's
+// name, price and details, and the seller's commission rate, as they were at
+// that moment. Nothing recorded here is ever recalculated from current data.
+//
+// Decided 2026-10-07 (README §8, §9, §20 C13, O1–O3, P8, X8):
+//   1. The order total is the sum of its items; MUHUZE adds no delivery fee,
+//      discount, or tax for now.
+//   2. Commission = seller subtotal × rate, rounded half up to the cent; the
+//      seller gets the rest, so the split always adds up exactly.
+//   3. A seller sees their part of an order only once the order is PAID.
+//   4. Prepaid only.
+//   5. The buyer can cancel the whole order while it is unpaid.
+//   6. After payment each seller handles their part on their own:
+//        pending → accepted → shipped → delivered → completed
+//      The seller can reject while pending; the buyer confirms receipt (from
+//      shipped or delivered) to complete it.
+//   7. No cancelling single items.
+//   8. The order's status is derived from payment and its parts by one function.
+//   9. A buyer cannot order from their own shop; at most 50 products per
+//      order, quantity 1 to 999 each.
+
+// The buyer's whole purchase, and the thing a payment pays for.
+Table orders {
+  id uuid [primary key]
+  order_number varchar(20) [not null, unique, note: 'what people quote: MHZ-000123 — from the database sequence order_number_seq']
+  buyer_account_id uuid [not null, ref: > accounts.id, note: 'RESTRICT delete; indexed']
+  status varchar(20) [not null, default: 'awaiting_payment', note: 'awaiting_payment | in_progress | completed | cancelled — DERIVED from payment and the seller orders by one function; never set directly']
+  currency char(3) [not null, default: 'RWF']
+  total_amount numeric(14,2) [not null, note: 'sum of the seller orders\' subtotals — what the buyer pays']
+
+  // Where to deliver. Typed at checkout and kept with the order, so a later
+  // change to the buyer's details never rewrites it.
+  recipient_name varchar(150) [not null]
+  recipient_phone varchar(20) [not null, note: 'E.164']
+  delivery_province varchar(100) [not null]
+  delivery_district varchar(100) [not null]
+  delivery_sector varchar(100) [not null]
+  delivery_address varchar(255) [note: 'street, building, landmark']
+  buyer_note varchar(500) [note: 'anything the buyer wants the sellers to know']
+
+  paid_at timestamptz [note: 'set by the payments feature when payment is confirmed; null = unpaid']
+  cancelled_at timestamptz
+  cancel_reason varchar(500)
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Index (buyer_account_id, created_at)
+  // Check: status in its list; total_amount >= 0
+}
+
+// One shop's part of an order: its own fulfilment status, and its own money
+// split, fixed at the moment the order was created.
+Table seller_orders {
+  id uuid [primary key]
+  order_id uuid [not null, ref: > orders.id, note: 'RESTRICT delete']
+  seller_id uuid [not null, ref: > sellers.id, note: 'RESTRICT delete; indexed with status']
+  seller_name varchar(150) [not null, note: 'SNAPSHOT of the shop name']
+  status varchar(20) [not null, default: 'awaiting_payment', note: 'awaiting_payment | pending | accepted | shipped | delivered | completed | rejected | cancelled']
+  status_reason varchar(500) [note: 'why it was rejected or cancelled — shown to the buyer']
+
+  // The money split — a SNAPSHOT, never recalculated (README §11.1)
+  subtotal numeric(14,2) [not null, note: 'sum of this seller\'s line totals']
+  commission_rate numeric(5,2) [not null, note: 'percent, as resolved by seller plans when the order was created']
+  commission_amount numeric(14,2) [not null, note: 'MUHUZE\'s share: subtotal × rate, rounded half up']
+  seller_amount numeric(14,2) [not null, note: 'the seller\'s share: subtotal − commission_amount']
+  terms_source varchar(20) [not null, note: 'subscription | default — where the rate came from']
+  subscription_id uuid [ref: > seller_subscriptions.id, note: 'the subscription that gave the rate; RESTRICT; null when the default applied']
+  plan_name varchar(100) [note: 'SNAPSHOT of that plan\'s name']
+  default_rate_id uuid [ref: > default_commission_rates.id, note: 'the default-rate row that applied; RESTRICT; null when a subscription applied']
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (order_id, seller_id) — one part per shop per order
+  // Index (seller_id, status, created_at) — a seller's order list
+  // Check: status and terms_source in their lists
+  // Check: commission_amount + seller_amount = subtotal; all three >= 0
+  // Check: exactly one of subscription_id / default_rate_id is set, matching terms_source
+}
+
+// One product in an order, with what it was when it was bought.
+Table order_items {
+  id uuid [primary key]
+  seller_order_id uuid [not null, ref: > seller_orders.id, note: 'CASCADE delete; indexed']
+  product_id uuid [not null, ref: > products.id, note: 'a link back for "view this product" only — RESTRICT (a published product is never deleted). The snapshot below is what counts']
+  product_name varchar(200) [not null, note: 'SNAPSHOT']
+  unit_price numeric(14,2) [not null, note: 'SNAPSHOT of the price when ordered']
+  quantity integer [not null, note: '1 to 999']
+  line_total numeric(14,2) [not null, note: 'unit_price × quantity']
+  image_url varchar(500) [note: 'SNAPSHOT of the main picture']
+  attributes jsonb [not null, note: 'SNAPSHOT of the details shown to the buyer: [{"name": "Storage", "value": 256, "unit": "GB"}, …] — display only, never queried']
+  created_at timestamptz [not null]
+  // Unique (seller_order_id, product_id) — a product appears once per order
+  // Check: quantity > 0; line_total = unit_price * quantity
+}
+
+// Append-only record of every status change of a seller order: who, when,
+// why. Never updated or deleted.
+Table seller_order_events {
+  id uuid [primary key]
+  seller_order_id uuid [not null, ref: > seller_orders.id, note: 'CASCADE delete; indexed']
+  from_status varchar(20) [note: 'null for the first row']
+  to_status varchar(20) [not null]
+  reason varchar(500)
+  actor_account_id uuid [ref: > accounts.id, note: 'the buyer, the seller, or staff; null when the system did it (payment confirmed); SET NULL']
+  created_at timestamptz [not null]
+}
+
+// ── Payments ──────────────────────────────────────────────────────────
+// How the buyer's money reaches MUHUZE, and how MUHUZE knows it did.
+// README §12. This is PHASE 1: the buyer pays MUHUZE outside the app (mobile
+// money, merchant code, bank), tells us the transaction reference, and a
+// member of staff checks MUHUZE's real statement and approves.
+//
+// The buyer always pays MUHUZE, never a seller. A seller is paid later, from
+// their wallet, by withdrawal.
+//
+// An online gateway (Phase 2) will be another way of reaching the same
+// result: the same `payments` row becoming `paid` through the same single
+// function. Nothing after that point knows which way it happened.
+//
+// Decided 2026-10-07 (README §12, §20 D3, D5–D8, P2):
+//   1. Several receiving accounts can be active at once; at most one default.
+//   2. The buyer submits the account paid, the transaction reference, and
+//      the phone number or name they paid from. No screenshot.
+//   3. A transaction reference is used once (a rejected one can be resubmitted).
+//   4. A payment is always for the order's full total.
+//   5. One member of staff approves; nobody verifies their own payment.
+//   6. Approving marks the payment paid AND releases the order, in one
+//      transaction, through the single idempotent confirm_payment().
+//   7. Rejecting needs a reason; the buyer can submit again; attempts are kept.
+//   8. Seller-plan payments are not here yet.
+
+// An account MUHUZE receives buyers' money on. Real numbers and names are
+// entered by staff as data; none is ever written in code or in this file.
+// One that any payment has used is deactivated, never deleted.
+Table payment_destinations {
+  id uuid [primary key]
+  method varchar(20) [not null, note: 'mobile_money | merchant_code | bank_transfer']
+  provider varchar(100) [not null, note: 'who runs it, as buyers know it: the mobile-money network or the bank']
+  account_reference varchar(100) [not null, note: 'what the buyer sends money to: a phone number, a merchant code, or a bank account number']
+  registered_name varchar(150) [not null, note: 'the name the buyer should see when they pay — how they know it is really MUHUZE']
+  currency char(3) [not null, default: 'RWF']
+  instructions varchar(500) [note: 'optional extra steps shown to the buyer, e.g. the code to dial']
+  is_active boolean [not null, default: true, note: 'inactive = never shown to buyers']
+  is_default boolean [not null, default: false, note: 'shown first; must be active']
+  created_by_account_id uuid [ref: > accounts.id, note: 'SET NULL']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (currency) where is_default — at most one default per currency
+  // Check: method in its list; NOT is_default OR is_active
+}
+
+// One attempt to pay for an order. An order can have several attempts (a
+// rejected reference, then a correct one) but only ONE can ever be paid.
+//
+// Status:  awaiting_verification → paid
+//          awaiting_verification → rejected   (the buyer may try again)
+// More states (pending, refunded, …) are added when a real flow needs them.
+//
+// The destination_* columns are a SNAPSHOT of where the buyer was told to
+// pay. If MUHUZE later changes its number, old payments still show the
+// account they were actually sent to.
+Table payments {
+  id uuid [primary key]
+  purpose varchar(20) [not null, default: 'order', note: 'order — `subscription` joins it when plan payments move here (P8)']
+  order_id uuid [not null, ref: > orders.id, note: 'what is being paid for; RESTRICT delete; indexed']
+  order_number varchar(20) [not null, note: 'SNAPSHOT — what staff match against the statement']
+  payer_account_id uuid [not null, ref: > accounts.id, note: 'the buyer; RESTRICT delete']
+  amount numeric(14,2) [not null, note: 'the order total when the payment was submitted; > 0']
+  currency char(3) [not null]
+  channel varchar(20) [not null, default: 'manual', note: 'manual — one value per gateway is added in Phase 2']
+  status varchar(30) [not null, default: 'awaiting_verification', note: 'awaiting_verification | paid | rejected']
+
+  destination_id uuid [not null, ref: > payment_destinations.id, note: 'the account the buyer says they paid; RESTRICT delete']
+  destination_method varchar(20) [not null, note: 'SNAPSHOT']
+  destination_provider varchar(100) [not null, note: 'SNAPSHOT']
+  destination_account_reference varchar(100) [not null, note: 'SNAPSHOT']
+  destination_registered_name varchar(150) [not null, note: 'SNAPSHOT']
+
+  // What the buyer told us
+  reference varchar(100) [not null, note: 'the transaction id from their mobile-money or bank message']
+  payer_name varchar(150) [note: 'the name on the account they paid from']
+  payer_phone varchar(20) [note: 'the number they paid from, E.164']
+
+  // What staff decided
+  verified_by_account_id uuid [ref: > accounts.id, note: 'who approved or rejected; SET NULL']
+  verified_at timestamptz
+  rejection_reason varchar(500) [note: 'shown to the buyer']
+  paid_at timestamptz [note: 'set when it becomes paid']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (order_id) where status = 'paid'                    — one paid payment per order, ever
+  // Unique (order_id) where status = 'awaiting_verification'   — one open attempt per order
+  // Unique (lower(reference)) where status <> 'rejected'       — a reference is used once
+  // Index (status, created_at) — the staff verification queue
+  // Check: status, purpose, channel in their lists; amount > 0
+}
+
+// ── Revenue and wallets (IMPLEMENTED — migration 0009) ────────────────
+// What happens to the money once a payment is confirmed. README §13, §14.
+//
+// The buyer paid MUHUZE. MUHUZE now OWES each seller their share. That debt
+// is the seller's wallet: a record inside MUHUZE, not money in the seller's
+// hands. Money reaches a seller only by a withdrawal (the next feature).
+//
+//     payment confirmed
+//        ├── revenue_transactions   one per shop in the order: the split
+//        └── wallet_transactions    + seller's share → PENDING
+//     buyer confirms receipt
+//        └── wallet_transactions    pending → AVAILABLE   (can be withdrawn)
+//
+// A wallet's balances are never just numbers someone can edit. Every change
+// is a wallet_transactions row saying what moved, why, and what the balances
+// were afterwards. The balances can always be rebuilt from those rows.
+//
+// DECIDED 2026-10-07 (README §20 W1, W2, W7, X4):
+//   1.  One wallet per seller, in RWF, created automatically with their
+//       first earning. Two balances: pending and available. (W7)
+//   2.  When a payment is confirmed, each seller's share goes to their
+//       PENDING balance and MUHUZE's commission is recorded as revenue, in
+//       the same step as the payment. Never twice for the same order.
+//   3.  A seller's share becomes AVAILABLE when the buyer confirms receipt
+//       of that seller's part. No extra waiting period. (W1, W2)
+//   4.  If a seller rejects a part that is already paid, their pending
+//       earning is taken back with a NEW reversing record; nothing is
+//       deleted. Giving the buyer their money back stays manual. (R1)
+//   5.  No endpoint can set or add to a balance. The database refuses a
+//       negative balance.
+//   6.  MUHUZE has no wallet of its own. What MUHUZE earned is the total of
+//       the commission in the revenue records. (X4)
+//   7.  No manual corrections by staff yet.
+
+// The accounting of ONE seller order's sale, written once when its payment
+// is confirmed, from the amounts frozen on the seller order. It says how the
+// buyer's money for that shop is shared between the seller and MUHUZE.
+// Never edited. If the sale is undone, `reversed_at` is set and a reversing
+// wallet movement is written.
+Table revenue_transactions {
+  id uuid [primary key]
+  seller_order_id uuid [not null, unique, ref: - seller_orders.id, note: 'ONE per seller order, ever — the database refuses a second; RESTRICT delete']
+  order_id uuid [not null, ref: > orders.id, note: 'RESTRICT delete; indexed']
+  seller_id uuid [not null, ref: > sellers.id, note: 'RESTRICT delete; indexed']
+  gross_amount numeric(14,2) [not null, note: 'what the buyer paid for this shop\'s part']
+  commission_rate numeric(5,2) [not null, note: 'percent, copied from the seller order']
+  commission_amount numeric(14,2) [not null, note: 'MUHUZE\'s income from this sale']
+  seller_amount numeric(14,2) [not null, note: 'what MUHUZE owes the seller for this sale']
+  currency char(3) [not null]
+  reversed_at timestamptz [note: 'set if the sale was undone (the seller rejected a paid part); null otherwise']
+  created_at timestamptz [not null]
+  // Check: commission_amount + seller_amount = gross_amount; all >= 0
+}
+
+// What MUHUZE owes one seller, right now.
+Table wallets {
+  id uuid [primary key]
+  seller_id uuid [not null, unique, ref: - sellers.id, note: 'one wallet per seller; RESTRICT delete']
+  currency char(3) [not null, default: 'RWF']
+  pending_balance numeric(14,2) [not null, default: 0, note: 'earned, but the buyer has not confirmed receipt — cannot be withdrawn']
+  available_balance numeric(14,2) [not null, default: 0, note: 'can be withdrawn']
+  total_earned numeric(14,2) [not null, default: 0, note: 'everything ever earned, less what was reversed']
+  total_withdrawn numeric(14,2) [not null, default: 0, note: 'everything ever paid out']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Check: no balance or total is negative
+}
+
+// Every movement in a wallet. Append-only: never updated, never deleted.
+//   earning     + pending                      a paid sale
+//   settlement  − pending, + available         the buyer confirmed receipt
+//   reversal    − pending                      a paid sale was undone
+// More kinds (withdrawal, …) join with the features that need them.
+Table wallet_transactions {
+  id uuid [primary key]
+  wallet_id uuid [not null, ref: > wallets.id, note: 'RESTRICT delete; indexed with created_at']
+  kind varchar(20) [not null, note: 'earning | settlement | reversal']
+  pending_change numeric(14,2) [not null, note: 'signed']
+  available_change numeric(14,2) [not null, note: 'signed']
+  pending_after numeric(14,2) [not null, note: 'the wallet\'s pending balance once this was applied']
+  available_after numeric(14,2) [not null, note: 'the wallet\'s available balance once this was applied']
+  revenue_transaction_id uuid [not null, ref: > revenue_transactions.id, note: 'the sale this movement comes from; RESTRICT delete; FK named fk_wallet_transactions_revenue_transaction_id (the conventional name is too long)']
+  created_at timestamptz [not null]
+  // Unique (revenue_transaction_id, kind) — a sale is credited once, settled once,
+  //   and reversed at most once, whatever the application does
+  // Check: kind in its list
 }

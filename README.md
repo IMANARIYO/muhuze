@@ -117,7 +117,7 @@ This repository is a **ground-up backend rebuild**.
 | Path | What it is |
 |---|---|
 | `README.md` | This specification. |
-| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, **authentication**, **roles and permissions**, **sellers** with private document storage, seller-owned **categories**, **products**, and **seller plans with the commission resolver** (the last awaiting its first passing test run; see [`backend/docs/features/`](backend/docs/features/FEATURE-ROADMAP.md)). Inventory and cart are next. |
+| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, **authentication**, **roles and permissions**, **sellers** with private document storage, seller-owned **categories**, **products**, and **seller plans with the commission resolver** **orders**, **manual payments**, and **revenue accounting with seller wallets** (the last three awaiting their first passing test run; see [`backend/docs/features/`](backend/docs/features/FEATURE-ROADMAP.md)). Withdrawals are next. |
 | `frontend/` | Frontend (Vite + React + TypeScript), currently on demo data. It displays data and requests operations. It never computes or mutates money. Its guide is [`frontend/PROJECT.md`](frontend/PROJECT.md), which defers to this README for business rules. |
 | `old project/` | The original prototype, kept for reference. |
 
@@ -183,7 +183,6 @@ backend/
 │       ├── categories/         # each seller's own categories + their attribute definitions
 │       ├── products/           # seller-owned products + ProductAttributeValues
 │       ├── seller_plans/       # SellerPlans, SellerSubscriptions, default commission, commission resolver
-│       ├── carts/
 │       ├── orders/             # Order, SellerOrder, OrderItem
 │       ├── payments/           # internal Payment record, MUHUZE payment destinations, confirmation workflow
 │       │   └── providers/      # confirmation channels behind a common interface: manual (Phase 1), gateways (Phase 2)
@@ -328,7 +327,7 @@ Account ──1:0..1── Seller ──1:N── Product ──N:1── Catego
    │                 ├──1:N── SellerPayoutDestination        (where the seller receives withdrawals)
    │                 └──1:N── Withdrawal ──N:1── SellerPayoutDestination
    │
-   ├──1:1── Cart ──1:N── CartItem ──N:1── Product
+   │         (no Cart: the cart lives in the frontend, §8)
    │
    └──1:N── Order ──1:N── SellerOrder ──1:N── OrderItem ──N:1── Product (reference only;
                 │              │                                 snapshot is authoritative)
@@ -441,28 +440,30 @@ Product
 - **What products use cannot be deleted:** a category that still has products, and an attribute or option that products have values for, can only be switched off (`K8`).
 - **Price** is in **RWF** only for now (`T2`), more than zero, with at most two decimal places.
 - **Pictures:** up to 8 per product, JPEG or PNG, 5 MB each, public.
-- **Stock is not tracked yet** (`K3`): a published product is simply available. Inventory is a separate feature and must exist before orders.
+- **MUHUZE does not manage inventory** (`K3`, decided 2026-10-07). There are no stock counts. A seller puts a product on the market by publishing it and takes it off by archiving it; a published product is simply available. Because the system cannot know a product has run out, two buyers can order the last unit: a seller must be able to decline an order they cannot fulfil ([§9](#9-orders-order--sellerorder--orderitem)), and a paid one then needs a refund (`R1`).
 - **Buyers see a product only when** it is published, not hidden by staff, its category is active, and its shop is open. Otherwise it does not exist for them, and they are not told why.
 
 Details: [`backend/docs/features/007_products.md`](backend/docs/features/007_products.md).
 
 ## 8. Cart and Checkout
 
-The cart can hold products from **multiple sellers**:
+**Decided 2026-10-07 (`X8`): the cart lives in the frontend only.** The backend stores no cart and has no cart endpoints. The buyer's device keeps the list of products and quantities, and the backend first hears of it when the buyer checks out, as one request: *create an order with these products and quantities*.
+
+A cart, and therefore an order, can hold products from **multiple sellers**:
 
 ```
-Cart
- ├── Seller A
- │     ├── Product A
- │     └── Product B
- └── Seller B
-       └── Product C
+Order request
+ ├── Product A  × 2     (Seller A)
+ ├── Product B  × 1     (Seller A)
+ └── Product C  × 1     (Seller B)
 ```
+
+The request carries **only product ids and quantities** (plus where to deliver). Everything else is the backend's to decide.
 
 Checkout produces **one parent order**. The backend:
 
-1. Re-reads every cart item's product from the database. It **MUST NOT** trust prices, totals, or seller IDs from the client.
-2. Validates each product: it exists, is purchasable, and belongs to an operational seller. It also validates quantity. Inventory and stock rules are **Open** (`K3`).
+1. Re-reads every requested product from the database. It **MUST NOT** trust prices, totals, or seller IDs from the client; it does not even accept them.
+2. Validates each product: it exists, is purchasable, and belongs to an operational seller. It also validates quantity. There is no stock check: MUHUZE does not manage inventory (`K3`, [§7.4](#74-product-rules)).
 3. **Groups the items by seller.**
 4. Creates one `Order` for the buyer, with payment still outstanding.
 5. For each seller in the group, creates one `SellerOrder`, **resolves and snapshots that seller's applicable commercial terms** ([§10](#10-seller-plans-subscriptions-and-commission), [§11](#11-historical-correctness-and-snapshots)), and computes the seller subtotal and financial breakdown.
@@ -474,6 +475,16 @@ Steps 4 to 7 MUST happen in **one database transaction**: either the whole order
 The buyer then **initiates payment** for the order ([§12](#12-payments-and-gateway-integration)). SellerOrders are **not released to sellers for fulfillment** until the payment is confirmed `Paid` ([§9.3](#93-status-at-two-levels)).
 
 The buyer experience is **one marketplace checkout**, unless a later business rule explicitly says otherwise.
+
+**Decided 2026-10-07:**
+
+- **The order total is the sum of its items.** MUHUZE adds no delivery fee, discount, or tax for now; delivery is arranged between the buyer and each seller. (`O6`, `C8`, and `T1` stay open for when that changes.)
+- **Only products a buyer can see right now can be ordered.** If any product in the request is not on sale, the whole order fails and names them.
+- **A buyer cannot order from their own shop.** An order holds at most 50 different products, quantity 1 to 999 each.
+- **Prepaid only** (`P8`): no cash on delivery.
+- **The buyer can cancel the whole order while it is unpaid.** An unpaid order does not expire on its own for now (`P3`).
+
+Details: [`backend/docs/features/010_orders.md`](backend/docs/features/010_orders.md).
 
 ## 9. Orders: Order → SellerOrder → OrderItem
 
@@ -527,25 +538,40 @@ Order #10001
   Seller C → Accepted
 ```
 
-**Release after payment.** A SellerOrder is created at checkout, but it enters the seller's fulfillment workflow only after the order's payment is confirmed `Paid`. Payment confirmation **activates** the SellerOrders. How "created but not yet released" is represented (a distinct state, or a release marker) is decided in the orders module. Whether sellers can *see* unreleased portions, and whether any non-prepaid flow such as cash on delivery exists, is **Open** (`O3`, `P8`).
+**Release after payment.** A SellerOrder is created at checkout in the state `awaiting_payment`, and enters the seller's fulfillment workflow only after the order's payment is confirmed `Paid`: payment confirmation moves every SellerOrder of the order to `pending`. **A seller cannot see their part of an order until then** (`O3`, decided).
 
 **SellerOrder fulfillment lifecycle** (after release):
 
 ```
 Pending ──► Accepted ──► Shipped ──► Delivered ──► Completed
-   │            │
-   ├──► Rejected (by the seller)
-   └──► Cancelled ◄─┘ (by buyer/admin, where allowed)
+   │                        │                          ▲
+   └──► Rejected            └── buyer confirms receipt ┘
+        (by the seller, with a reason)
 ```
+
+- The **seller** accepts, ships, and marks delivered. The **buyer** completes it by confirming receipt, which they can do as soon as it is shipped.
+- A seller can **reject** only while `Pending`, and must give a reason the buyer sees. Since MUHUZE does not track stock, this is how a seller declines an order they cannot fulfil. The part is already paid, so the buyer is owed a refund (`R1`).
+- A seller accepts or rejects their **whole** part; single items cannot be cancelled (`O2`, decided).
+- A buyer can cancel only before payment, and only the whole order; every part then becomes `Cancelled`.
 
 - Every transition is enforced in the orders service, which checks the current state. An invalid transition fails with a specific error.
 - Each transition is recorded with its timestamp and the actor who made it.
 - All sellers in one order are **never** assumed to move through these states together.
 
-**Parent Order status** describes the overall purchase. It is **derived** from its seller orders by **one** service function, and handlers never set it ad hoc. The exact derivation table (for example, what the parent shows when Seller A is `Delivered` and Seller B is `Rejected`) is **Open** (`O1`). Until it's confirmed:
+**Parent Order status** describes the overall purchase. It is **derived** from its seller orders by **one** service function, and handlers never set it ad hoc. The table (`O1`, decided 2026-10-07):
 
-- the derivation function is the only place this logic may live;
-- the parent status is re-derived whenever any child status changes, in the same transaction.
+| Situation | Order status |
+|---|---|
+| Cancelled by the buyer before payment | `cancelled` |
+| Not paid yet | `awaiting_payment` |
+| Paid, and at least one seller order is not final | `in_progress` |
+| Every seller order is final, and at least one was completed | `completed` |
+| Every seller order is final, and none was completed | `cancelled` |
+
+(`Completed`, `Rejected`, and `Cancelled` are the final states of a seller order.)
+
+- The derivation function is the only place this logic may live.
+- The parent status is re-derived whenever any child status changes, in the same transaction.
 
 **Payment status is a separate state machine** ([§12.2](#122-payment-status-lifecycle)). It is not mixed into order or fulfillment status.
 
@@ -698,6 +724,8 @@ seller amount
 MUHUZE amount
 plan / subscription reference (or "default rate") that was applied
 ```
+
+**Rounding (`C13`, decided):** the commission amount is the seller subtotal × rate, rounded half up to the cent. The seller amount is the subtotal minus the commission, so the two always add up exactly, and any rounding remainder goes to the seller. The database checks that they add up.
 
 Every later financial step (revenue, wallet, refunds, analytics) uses the **snapshot**, never the seller's current plan or the current default. A current plan **MUST NEVER** retroactively rewrite a historical financial record.
 
@@ -880,7 +908,16 @@ transaction evidence (e.g. receipt, statement line)
 - Submitted references are **validated server-side**: format, the payment belongs to this buyer and order, and the reference **hasn't already been used** to confirm another payment.
 - Proof files, if they are required (`D6`), use private/authenticated storage (`core/storage.py`), the same as identity documents.
 - Approval records **who** approved, **when**, and the evidence or reference relied on. Rejection records the reason. Both are auditable.
-- How buyers submit references (`D5`), who may approve (`D7`), and whether approval needs one administrator or several (`D8`) are **Open**.
+**Decided 2026-10-07:**
+
+- **How buyers submit (`D5`, `D6`):** in the app, on the order's payment screen, they choose the MUHUZE account they paid, and give the transaction reference and the phone number or name they paid from. **No screenshot is collected.**
+- **A payment is always for the order's full total** (`P2`). There are no part payments, and the client cannot choose the amount.
+- **A transaction reference can be used once.** A reference from a rejected attempt can be submitted again.
+- **Who approves (`D7`, `D8`):** one member of staff holding the `payment.verify` permission. There is no second approver. Nobody can verify a payment they made themselves.
+- **Several receiving accounts can be active at once** (`D3`), with at most one default, shown first.
+- Rejecting needs a reason the buyer sees; the buyer can then submit again, and every attempt is kept.
+
+Details: [`backend/docs/features/011_payments.md`](backend/docs/features/011_payments.md).
 
 ### 12.6 Phase 2: gateway payment
 
@@ -1078,7 +1115,9 @@ Seller
 - The wallet MUST NOT be a mutable number without history: `Seller → Wallet → WalletTransaction(s)`.
 - Every movement is a WalletTransaction referencing its source. Examples: seller earning, settlement (pending → available), refund reversal, withdrawal, withdrawal reversal, administrative adjustment (permissioned, with a reason), referral commission, and other approved movements.
 - Balances change **only** through WalletTransactions written by backend services, and always reconcile with them. No endpoint lets a client set or increase a balance.
-- The final fields and the currency structure are decided during wallet design (`W7`). Settle the shape up front; the prototype had to reconcile legacy top-level balances against a per-currency structure, and that must not happen again.
+- **One wallet per seller, in RWF** (`W7`, decided), created with the seller's first earning. It holds the four figures above and nothing else. A second currency would mean a second wallet row, never extra balance columns.
+- **MUHUZE has no wallet of its own** (`X4`, decided). MUHUZE's income is the total commission in the RevenueTransactions.
+- Staff cannot yet make administrative adjustments; when they can, each is a WalletTransaction with a reason and its own permission.
 
 ### 13.6 Settlement: pending vs. available
 
@@ -1099,7 +1138,9 @@ Withdrawal completed               → external payout
 ```
 
 - **Pending and available are distinct.** A seller **MUST NOT** withdraw pending funds.
-- Settlement is performed by **one** service rule. The triggering state and any holding period are **Open** and must remain configurable (`W1`, `W2`).
+- Settlement is performed by **one** service rule: a seller's share becomes available **when the buyer confirms receipt of that seller's SellerOrder** (`W1`, decided). There is **no holding period** after that, so the funds can be withdrawn at once (`W2`, decided). Each SellerOrder settles on its own.
+- What happens when a buyer **never confirms** receipt is **Open** (`W10`). Until it is decided, those funds stay pending.
+- A seller who **rejects a SellerOrder that is already paid** has the pending earning reversed ([§13.7](#137-cancellations-refunds-and-reversals)). Returning the buyer's money is a refund, which is still manual (`R1`).
 
 ### 13.7 Cancellations, refunds, and reversals
 
@@ -1273,7 +1314,7 @@ The modules are built in **dependency order**. Each step relies on relationships
 | 4 | **Product attributes** (AttributeDefinitions) | Product validation needs the category's attribute contract. |
 | 5 | **Products** | Seller-owned products with validated attribute values. Ownership checks are proven here first. |
 | 6 | **Seller plans** (plans, subscription assignment, default rate, commission resolver) | Must exist **before orders**, because each SellerOrder snapshots the applicable terms when it is created. Subscription *billing* is completed after step 9. |
-| 7 | **Cart** | Multi-seller cart over real products. |
+| 7 | ~~Cart~~ | Not built: the cart lives in the frontend (`X8`). |
 | 8 | **Orders** | Order → SellerOrder → OrderItem, snapshots, two-level status, release-after-payment. |
 | 9 | **Payments** | **Phase 1 first:** internal Payment record, status machine, MUHUZE payment destinations, payment instructions, reference/proof submission, permissioned manual approval, and the single idempotent `confirm_payment()`, built behind the channel abstraction. Subscription payments are wired here. **Phase 2** (the first gateway adapter) comes once a provider is chosen (`P1`) and requires no change downstream. |
 | 10 | **Revenue accounting** | Per-SellerOrder revenue and earnings from snapshots, plus subscription revenue. |
@@ -1516,8 +1557,24 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 | C10 | A subscription is **activated after its payment is confirmed**: by an admin today, by the payments feature later. | 2026-10-07 | [§10.2](#102-seller-subscription-assignment) |
 | C11 | There is **no "standard" plan**; no subscription means the default rate. | 2026-10-07 | [§10.3](#103-commission-precedence-confirmed) |
 | C12 | Subscriptions **cannot be paid from the wallet**. | 2026-10-07 | [§10.6](#106-muhuze-revenue-sources) |
+| X8 | **The cart is a frontend concern.** The backend stores no cart; checkout sends product ids and quantities, and the backend creates the order. | 2026-10-07 | [§8](#8-cart-and-checkout) |
+| C13 | **Rounding:** commission is rounded half up to the cent; the seller receives the subtotal minus the commission, so any remainder goes to the seller. | 2026-10-07 | [§11.1](#111-commercial-terms-snapshot) |
+| O1 | The **order status derivation table**. | 2026-10-07 | [§9.3](#93-status-at-two-levels) |
+| O2 | **No partial cancellation** of items within a seller order. | 2026-10-07 | [§9.3](#93-status-at-two-levels) |
+| O3 | Sellers **cannot see** a seller order before payment is confirmed. | 2026-10-07 | [§9.3](#93-status-at-two-levels) |
+| P8 | **Prepaid only**: no cash on delivery. | 2026-10-07 | [§8](#8-cart-and-checkout) |
+| D3 | **Several payment destinations can be active at once**, with at most one default. | 2026-10-07 | [§12.5](#125-phase-1-manual-payment) |
+| D5 | Buyers submit the **transaction reference and who paid**, in the app, on the order's payment screen. | 2026-10-07 | [§12.5](#125-phase-1-manual-payment) |
+| D6 | **No payment screenshot** is collected. | 2026-10-07 | [§12.5](#125-phase-1-manual-payment) |
+| D7 | Payments are approved by staff holding the **`payment.verify`** permission. | 2026-10-07 | [§12.5](#125-phase-1-manual-payment) |
+| D8 | **One approver**, no maker-checker; nobody verifies their own payment. | 2026-10-07 | [§12.5](#125-phase-1-manual-payment) |
+| W1 | A seller's share becomes **available when the buyer confirms receipt** of that seller's part of the order. | 2026-10-07 | [§13.6](#136-settlement-pending-vs-available) |
+| W2 | **No holding period**: available funds can be withdrawn at once. | 2026-10-07 | [§13.6](#136-settlement-pending-vs-available) |
+| W7 | **One wallet per seller, in RWF**, with pending and available balances and totals earned and withdrawn. | 2026-10-07 | [§13.5](#135-seller-wallet) |
+| X4 | **MUHUZE has no wallet**; its income is the commission in the revenue records. | 2026-10-07 | [§13.5](#135-seller-wallet) |
 | K1 | **No product variants**: one product has one price. | 2026-10-07 | [§7.4](#74-product-rules) |
 | K2 | Attribute values are stored as **typed rows** validated against the category; nothing inherits (categories are flat). | 2026-10-07 | [§7.3](#73-products-dont-all-have-the-same-structure) |
+| K3 | **No inventory management.** MUHUZE does not track stock or reserve units; a seller publishes a product to sell it and archives it when it is no longer available. | 2026-10-07 | [§7.4](#74-product-rules) |
 | K4 | **No admin approval** of new products; staff can hide one afterwards. | 2026-10-07 | [§7.4](#74-product-rules) |
 | K8 | A category, attribute, or option that products use **cannot be deleted, only switched off**. | 2026-10-07 | [§7.4](#74-product-rules) |
 | T2 | **One currency, RWF**, for now. Currency conversion and mixed-currency orders remain undecided. | 2026-10-07 | [§7.4](#74-product-rules) |
@@ -1538,20 +1595,18 @@ The items below are **not decided**. Code MUST NOT settle them implicitly. Recor
 | C2 | Exact subscription prices and currency. | seller_plans |
 | C4 | Exact commission rate for each plan, and the **exact default commission percentage**. | seller_plans |
 | C8 | Commission base: before or after discounts? Does it include delivery? Who funds discounts and promotions? | orders, revenue |
-| C13 | Rounding rule for commission and split amounts, and where any remainder goes. | orders, revenue |
 
 **Payments**
 
 | ID | Decision | Blocks |
 |---|---|---|
 | P1 | **Which future payment gateway(s)** will be integrated (Phase 2). Airtel Money was used in the previous implementation; that is not a decision. | payments |
-| P2 | Whether multiple gateways are supported **simultaneously**, and whether one order can be **split** across payments or providers. | payments |
-| P3 | Payment retry and expiry rules for unpaid orders. | payments, orders |
+| P2 | Whether multiple gateways are supported **simultaneously**. (One order is never split across payments: decided, [§12.5](#125-phase-1-manual-payment).) | payments |
+| P3 | Payment retry and expiry rules for unpaid orders. Today an unpaid order never expires; the buyer can cancel it. | payments, orders |
 | P4 | Whether manual confirmation remains available after a gateway is integrated, and for which cases. | payments |
 | P5 | Whether trusted gateway confirmation always auto-approves the payment, or some cases still need review. | payments |
 | P6 | Provider **transaction fees**: who absorbs them (MUHUZE, seller, buyer). | payments, revenue |
 | P7 | Additional payment states needed by the chosen provider(s). | payments |
-| P8 | Any non-prepaid flow, such as cash on delivery. | payments, orders |
 
 **MUHUZE payment destinations and manual payment (Phase 1)**
 
@@ -1561,20 +1616,12 @@ Actual account details are **never** decided in this document. They go into admi
 |---|---|---|
 | D1 | Which **mobile-money providers** MUHUZE will use. | payments |
 | D2 | Which **telephone numbers**, **merchant/MoMo codes**, **banks**, and **MUHUZE accounts** receive marketplace payments. | payments (configuration only) |
-| D3 | Whether **multiple destinations** can be active at the same time. | payments |
 | D4 | Whether a destination can be the **default for a specific currency**. | payments |
-| D5 | **How buyers submit payment references** (form field, message, …). | payments |
-| D6 | Whether **payment screenshots/proofs** are required. | payments |
-| D7 | **Who** can manually approve payments. | payments, auth |
-| D8 | Whether manual approval needs **one administrator or several** (maker-checker). | payments |
 
 **Orders and fulfillment**
 
 | ID | Decision | Blocks |
 |---|---|---|
-| O1 | Parent order **status derivation table** for mixed child states, and what triggers `Completed`. | orders |
-| O2 | Whether a seller can **partially cancel individual items** within a SellerOrder. | orders, revenue |
-| O3 | Whether sellers can see SellerOrders **before payment** is confirmed. | orders |
 | O4 | Seller-specific fulfillment rules: handling times, auto-cancel on no response. | orders |
 | O5 | Seller-managed vs. MUHUZE-managed delivery. | orders |
 | O6 | **Delivery/shipping:** fee calculation, per seller or per order, who pays, who receives it. | cart, orders, revenue |
@@ -1583,7 +1630,6 @@ Actual account details are **never** decided in this document. They go into admi
 
 | ID | Decision | Blocks |
 |---|---|---|
-| K3 | **Stock management** and **inventory reservation** (at cart, checkout, or payment; for how long). Products are built without stock; this must be decided and built **before orders**. | inventory, cart, orders |
 | K5 | Whether a **shared catalog** (several sellers offering one canonical product) is ever needed. | products |
 | K9 | Is **cross-shop browsing by kind of product** wanted (a short list of marketplace departments in addition to each seller's own categories)? Without it, buyers find products across shops by search only. | categories, products, search |
 
@@ -1591,15 +1637,13 @@ Actual account details are **never** decided in this document. They go into admi
 
 | ID | Decision | Blocks |
 |---|---|---|
-| W1 | **Settlement period:** which SellerOrder state releases pending funds, and any holding period. | wallets |
-| W2 | Whether sellers can withdraw **immediately after order completion**. | wallets, withdrawals |
 | W3 | **Withdrawal fees.** | withdrawals |
 | W4 | **Minimum** withdrawal amount. | withdrawals |
 | W5 | **Maximum** withdrawal amount and frequency limits. | withdrawals |
 | W6 | Whether withdrawals require **manual admin approval**, and whether some sellers get **automatic** processing. | withdrawals |
-| W7 | Wallet field structure and supported currencies. | wallets |
 | W8 | Supported **seller payout providers**. | withdrawals |
 | W9 | **Seller payout destination rules:** must the registered name match the verified identity? Do new or changed destinations need approval or a cooling-off period? | withdrawals, seller_verification |
+| W10 | **A buyer who never confirms receipt.** Are the seller's pending funds released automatically after a number of days, by staff, or not at all? | orders, wallets |
 
 **Refunds and disputes**
 
@@ -1625,7 +1669,6 @@ These were described in the frontend project guide before the README became the 
 |---|---|---|
 | X2 | **Buying flow per type.** In-app checkout ([§8](#8-cart-and-checkout)) is confirmed for sale products. Do rentals and services use a "contact the seller" flow, bookings, or checkout? | orders, payments |
 | X3 | **Contact visibility tied to subscriptions.** Can an admin *require* a subscription from a seller (or exempt one), with the seller's contact info **withheld by the API** while the required subscription is inactive? How does this combine with the commission-based plans in [§10](#10-seller-plans-subscriptions-and-commission)? | seller_plans, sellers, products |
-| X4 | **Admin/platform wallet.** Does MUHUZE itself get a wallet, or is platform income tracked only through revenue records ([§13.3](#133-records-and-their-responsibilities))? | wallets, revenue |
 | X5 | **Referral earners.** Can *every* user, buyers included, earn referral commission when someone they referred **buys or sells**? If so, where are a buyer's earnings recorded: a wallet for every user, or a separate earnings balance? (See also `F1`.) | referrals, wallets |
 | X6 | **Engagement features.** Are wishlist, view counts, usage counters (bought/rented/booked/contacted), and "popular/trending" sorting part of the product, and are they server-side? | products, analytics |
 | X7 | **Languages.** English only, or also Kinyarwanda and French? | all user-facing text |

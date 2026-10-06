@@ -12,7 +12,7 @@ Let sellers list what they sell, and let buyers find it. This is the first featu
 
 | In this feature | Not in this feature |
 |---|---|
-| Products: draft, publish, archive, delete a draft | Stock and "sold out" → `008_inventory` |
+| Products: draft, publish, archive, delete a draft | Stock counts: **not planned** (README §20 `K3`). Archiving is how a seller takes a product off the market |
 | Attribute values validated against the category | Variants (one product, several prices) → README §20 `K1` |
 | Public product pictures | Filtering buyers' lists by attribute ("8 GB RAM") → [Known gaps](#known-gaps) |
 | Buyer listing and product page, no login | Cart, orders, payment → later features |
@@ -42,7 +42,7 @@ Let sellers list what they sell, and let buyers find it. This is the first featu
 
 1. **No variants.** One product has one price. A phone in two storage sizes is two products.
 2. **Attribute values are stored as checked rows**, each pointing at a real attribute and, for choices, a real option.
-3. **No stock tracking.** A published product is simply available.
+3. **No stock tracking, by decision.** MUHUZE does not manage inventory. A published product is available; when it no longer is, its seller archives it, and can publish it again later.
 4. **No approval step.** A product is visible as soon as its seller publishes it; staff can hide one.
 5. **One currency: RWF.**
 6. **To publish**, a product needs an active category, a value for every required attribute, and at least one image.
@@ -158,7 +158,7 @@ app/modules/products/
 
 | Gap | Risk | Planned with |
 |---|---|---|
-| **No stock.** A seller can only stop selling by archiving | Overselling once orders exist | `008_inventory`, before orders |
+| **No stock, by decision** (`K3`). The system cannot know a product has run out | Two buyers can order the last unit; the seller must then cancel one order, and a paid one needs a refund | Orders must let a seller decline an order they cannot fulfil; refunds are README §20 `R1` |
 | Buyers cannot filter a list by attribute value ("8 GB RAM", "Black") | Weaker browsing; the indexes for it exist | A follow-up to this feature |
 | Search looks at the product name only | "Samsung" in the description is not found | Full-text search |
 | No shop name on list items (only on the product page) | The frontend needs a second call to show it | Add when the frontend needs it |
