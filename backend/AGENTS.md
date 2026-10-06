@@ -55,8 +55,9 @@ Code MUST NOT get ahead of its documentation, and documentation MUST NOT claim b
 backend/
 ├── app/
 │   ├── main.py              # create_app(): logging, handlers, middleware, routers
+│   ├── bootstrap.py         # startup tasks: permission sync, first admin
 │   ├── config/              # settings.py (pydantic-settings)
-│   ├── core/                # logging, request_context_middleware, database, security, clock, model_registry
+│   ├── core/                # logging, request_context_middleware, database, security, clock, model_registry, permissions, permission_registry
 │   ├── api/                 # health_routes.py; v1/api_v1_routes.py aggregates feature routes under /api/v1
 │   ├── domain/              # pure business rules & internal interfaces (no FastAPI/DB/provider code)
 │   ├── infrastructure/      # adapters: payments/, storage/, notifications/, redis/, external_services/
@@ -159,12 +160,12 @@ Every list endpoint follows one pipeline, executed **in the database**, never by
 Request → Validation → Filters → Search → Sorting → Pagination → Repository → Response
 ```
 
-- **Pagination:** the shared `PaginationParams` (`page`, `page_size`; default 20, maximum 100) and `Page` (`items`, `page`, `page_size`, `total`, `total_pages`). No per-feature pagination parameters.
+- **Pagination:** the shared `PaginationParams` (`page`, `page_size`; default 20, maximum 100) and `Page` (`items`, `page`, `page_size`, `total`, `total_pages`). No per-feature pagination parameters. Declare it, and any filter schema, with `Depends()`, not `Query()`.
 - **Filtering:** explicitly defined and validated parameters only (`status`, `category`, `seller`, `created_at`, `price`, …), backed by indexes where needed. Never accept arbitrary column names.
 - **Sorting:** an explicit allowlist mapped to known fields. Never raw SQL fragments from clients.
 - **Search** (`?q=`): document which fields are searched, case sensitivity, matching behavior, and the maximum query length. Use the same semantics everywhere unless there's a reason not to.
 
-The shared filter, sort, and search helpers are added, and documented in `response-format.md`, when the first collection endpoint needs them.
+The filter, sort, and search conventions are documented in [`docs/api/response-format.md`](docs/api/response-format.md); follow them for every new list endpoint.
 
 ## 11. Validation
 
@@ -176,11 +177,17 @@ The shared filter, sort, and search helpers are added, and documented in `respon
 
 - Authentication: *who are you?* Authorization: *are you allowed to do this?* Every protected operation enforces both.
 - Check the **RBAC permission** (`require_permission`) **and resource ownership** (in the service). A permission never grants access to *another* user's resource. Admin access to resources the admin doesn't own is a separate, explicit permission.
-- Permissions are code-defined (`*_permissions.py`) and synced to the database. Roles are dynamic data. Permission codes are `<resource>.<action>` with a **singular** resource: `product.create`, `role.manage`.
+- Permissions are code-defined and synced to the database at startup. Roles are dynamic data. Permission codes are `<resource>.<action>` with a **singular** resource: `product.create`, `role.manage`.
+- **Every feature declares the permissions for its own resources** as `PermissionDefinition`s in `<feature>_permissions.py`, adds them to `ALL_PERMISSIONS` in `app/core/permission_registry.py`, and protects its endpoints with `Depends(require_permission(...))`. No migration is needed for a new permission. See [`docs/features/003_roles_and_permissions.md`](docs/features/003_roles_and_permissions.md).
+- In a route signature, list the permission dependency **before** any dependency that loads a resource, so a caller without access gets `401`/`403` before learning whether the resource exists.
 - Clients authenticate with a short-lived JWT access token (`Authorization: Bearer`) and an opaque, hashed, rotating refresh token. No cookies.
 - The schema design lives in [`docs/database/database_schema.dbml`](docs/database/database_schema.dbml) (dbdiagram.io format). Add a table there, following its conventions, before writing its model.
 - Never trust client-provided roles, permissions, prices, totals, amounts, seller IDs, or payment status. Hiding a button is not security.
 - Security-sensitive logic (passwords, tokens, ownership, money) never lives in routes.
+- **Uploaded files** go through the `FileStorage` interface (`app/infrastructure/storage/file_storage.py`), are stored privately, and are reached only through short-lived signed links handed out after an access check. Never store or return a permanent file URL. Decide a file's type from its content, and cap its size.
+- **"Can this account sell?"** has one answer: `SellerService.get_active_seller()`. Never check the `seller` role for that. On an endpoint, use the `get_current_active_seller` dependency after `require_permission`.
+- **Lists that depend on another feature's rule** (for example "only products of open shops"): that feature exposes the rule as a subquery function (`open_shop_ids()`, `visible_category_ids()`), and the list embeds it. Never join another feature's tables yourself, and never filter a list in Python.
+- **Seller-owned resources** (categories, products): the service method takes the acting `seller_id` and treats a row of another seller as *not found* (`404`), for reads as well as writes. See `CategoryService._own`.
 
 ## 13. Transactions, concurrency, idempotency
 

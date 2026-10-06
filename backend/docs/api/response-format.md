@@ -64,6 +64,7 @@ Services raise exceptions from `app/shared/exceptions/application_exceptions.py`
 | `ConflictError` | 409 | Duplicate / state conflict |
 | `InputValidationError` | 422 | Input invalid in a way only the service can determine |
 | `BusinessRuleError` | 422 | Valid request forbidden by a business rule |
+| `ServiceUnavailableError` | 503 | Something the request depends on (file storage, …) is unavailable |
 
 Feature modules subclass the closest one, e.g. `class ProductNotFoundError(NotFoundError): message = "Product not found"`.
 
@@ -93,7 +94,28 @@ Collection endpoints return a `Page` inside `data`:
 }
 ```
 
-Query parameters: `page` (default 1, ≥ 1) and `page_size` (default 20, 1–100). Use `PaginationParams` / `Page.build(...)` from `app/shared/responses/pagination.py`, and paginate in SQL, never in memory. The filtering, sorting, and search conventions are added to this document when the first collection endpoint needs them.
+Query parameters: `page` (default 1, ≥ 1) and `page_size` (default 20, 1–100). Use `PaginationParams` / `Page.build(...)` from `app/shared/responses/pagination.py`, and paginate in SQL, never in memory.
+
+## Filtering, sorting, and search
+
+A list endpoint that needs them declares a `<Feature>ListFilters` schema next to its other schemas and takes it beside the pagination:
+
+```python
+async def list_sellers(
+    pagination: Annotated[PaginationParams, Depends()],
+    filters: Annotated[SellerListFilters, Depends()],
+): ...
+```
+
+Use `Depends()`, not `Query()`: FastAPI accepts only one `Query()` parameter model per endpoint.
+
+| Convention | Rule |
+|---|---|
+| **Filters** | One named, typed parameter per filter (`status`, `resource`, …), validated by the schema. Never a free-form column name. |
+| **Sort** | A single `sort` parameter whose allowed values are a `Literal` list of field names; a leading `-` means descending (`-created_at`). The repository maps each name to a real column. Add the primary key as a final tiebreaker so pages are stable. |
+| **Search** | A single `q` parameter: contains, case-insensitive, 1 to 100 characters, with `%` and `_` treated as literal characters (`icontains(..., autoescape=True)`). Each endpoint documents which fields it searches. |
+
+All three are applied in SQL. First used by `GET /sellers` ([sellers.md](sellers.md)).
 
 ## Request ID
 

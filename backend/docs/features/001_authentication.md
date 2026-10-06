@@ -112,7 +112,6 @@ These are not built. Each needs a decision or another feature first.
 | Registration reports "email already exists" (`409`) | Reveals that an email is registered | Accepted for usability; revisit if required |
 | The frontend can only tell "not verified" from "not active" by the message text | Fragile client logic | README §20 `I3` (machine-readable error codes) |
 | `ip_address` is the direct peer's address | Behind a proxy it is the proxy's address unless the server is run with trusted proxy headers | Deployment docs |
-| The `buyer` role is not assigned at registration | README says every account gets `buyer` | `003_roles_and_permissions`, whose migration must backfill existing accounts |
 | Password-reset page URL (`PASSWORD_RESET_URL`) points at a frontend route that doesn't exist yet | The emailed link 404s until the page is built | Frontend |
 
 ## Progress

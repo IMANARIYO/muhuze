@@ -117,7 +117,7 @@ This repository is a **ground-up backend rebuild**.
 | Path | What it is |
 |---|---|
 | `README.md` | This specification. |
-| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, and **authentication** (written, awaiting its first test run; see [`backend/docs/features/001_authentication.md`](backend/docs/features/001_authentication.md)). Roles and permissions are next. |
+| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, **authentication**, **roles and permissions**, **sellers** with private document storage, seller-owned **categories**, and **products** (the last two awaiting their first passing test run; see [`backend/docs/features/`](backend/docs/features/FEATURE-ROADMAP.md)). Seller plans are next. |
 | `frontend/` | Frontend (Vite + React + TypeScript), currently on demo data. It displays data and requests operations. It never computes or mutates money. Its guide is [`frontend/PROJECT.md`](frontend/PROJECT.md), which defers to this README for business rules. |
 | `old project/` | The original prototype, kept for reference. |
 
@@ -131,7 +131,7 @@ Decisions carried forward from the previous implementation:
 - **One `accounts` table for every person**, whatever their roles. Basic personal info (name, photo) lives on the account; role-specific data, such as the seller business profile, lives in its own 1:1 table. (The previous implementation kept a separate `Profile` table; that is merged into the account.)
 - **RBAC:** dynamic, admin-manageable roles (seeded `buyer` / `seller` / `admin`, and every account gets `buyer`). Permissions are **code-defined** in each module's `permissions.py` and synced into the database. Effective permissions are role-derived ∪ direct account grants (grant-only, no deny). `require_role` / `require_permission` dependencies are available to every module.
 - **Startup bootstrap** of env-configured admin and test accounts, run idempotently. This answers "how does the first admin get created?"
-- **File storage** (`core/storage.py`) is Cloudinary-backed and module-agnostic, with private/authenticated delivery for sensitive files such as identity documents.
+- **File storage** is Cloudinary-backed and module-agnostic (now `backend/app/infrastructure/storage/file_storage.py`), with private/authenticated delivery for sensitive files such as identity documents.
 - **Sellers:** `Seller` is 1:0..1 with `Account` and separate from the `seller` RBAC role. Seller status is the operational gate, while the role only marks a seller who has been approved at least once. Seller status never affects the account's ability to log in or to buy.
 
 **Superseded earlier schema draft.** A `database-schema.dbml` draft (removed from the working tree, still available in git history) predates the requirements in this README. Where they conflict, this README wins:
@@ -155,6 +155,7 @@ Decisions carried forward from the previous implementation:
 | Migrations | Alembic (async template) |
 | Auth | PyJWT + pwdlib (Argon2) |
 | Email | aiosmtplib (SMTP), behind an internal `EmailSender` interface |
+| File storage | Cloudinary (private assets, signed expiring links), behind an internal `FileStorage` interface |
 | Settings | pydantic-settings |
 | Tooling | uv, ruff, pytest, pytest-asyncio, httpx |
 
@@ -179,7 +180,7 @@ backend/
 │   └── modules/                # one folder per business domain
 │       ├── auth/  users/
 │       ├── sellers/  seller_verification/
-│       ├── categories/         # shared category tree + AttributeDefinitions
+│       ├── categories/         # each seller's own categories + their attribute definitions
 │       ├── products/           # seller-owned products + ProductAttributeValues
 │       ├── seller_plans/       # SellerPlans, SellerSubscriptions, default commission, commission resolver
 │       ├── carts/
@@ -236,6 +237,18 @@ The existing RBAC system is the foundation for every marketplace authorization c
 Both must pass. Holding `product.update` never grants the right to update *another seller's* product. Admin access to resources the admin doesn't own is a **separate, explicit permission**, never an implicit bypass of the ownership check. Sensitive financial actions, such as managing MUHUZE payment destinations, manual payment approval, plan and default-rate changes, withdrawal approval, and adjustments, each get their own explicit permission. Seller *status* (active, suspended, …) is a third, operational gate, checked by the service.
 
 **Conventions (decided):** permissions are named `<resource>.<action>` with a **singular** resource (`product.create`, `role.manage`). Clients authenticate with a short-lived JWT **access token** in the `Authorization: Bearer` header, plus an opaque, rotating **refresh token**; cookies are not used.
+
+**Roles and permissions rules (decided):**
+
+- A **permission** is one allowed action. Permissions are defined by the system, one set per resource, and cannot be created or edited by anyone at runtime.
+- A **role** is a named bundle of permissions. Admins can create, rename, and delete roles and choose their permissions.
+- Three **system roles** always exist and cannot be renamed or deleted: `buyer` (every account, from registration), `seller` (given when a seller application is approved), and `admin`.
+- The **`admin` role always holds every permission**, including ones added later. Its permissions cannot be edited.
+- A permission can also be granted **directly to one account**. An account's permissions are those of all its roles plus its direct grants. There is no "deny".
+- An admin cannot remove the `admin` role from their own account.
+- The **first admin** is created at startup from environment settings, because otherwise nobody could grant the role.
+
+Details: [`backend/docs/features/003_roles_and_permissions.md`](backend/docs/features/003_roles_and_permissions.md).
 
 **Authentication rules (decided):**
 
@@ -335,32 +348,35 @@ The cardinalities show the intended relationships. Where a cardinality depends o
 ### 7.1 Product ownership
 
 - **Every product belongs to exactly one seller:** `Seller 1 ── N Product`.
-- **Every product belongs to one category:** `Category 1 ── N Product`.
+- **Every product belongs to one category of its own seller:** `Category 1 ── N Product`, and the category's seller is the product's seller.
 - Within the category structure and marketplace rules, a seller is free to decide **what** they sell. A seller **can sell across multiple categories**, and the system MUST NOT assume a seller belongs to one category. Whether some categories are restricted, such as regulated goods, is **Open** (`K6`).
 - A seller can create, update, and archive **only products they own**. This is enforced through RBAC permission plus the ownership check ([§5.4](#54-authorization-and-ownership)).
-- MUHUZE has **no per-seller product schemas**. All sellers share one product model and one category system.
+- All sellers share **one product model** (the same core fields). Categories and their attributes are each seller's own ([§7.2](#72-seller-owned-categories)).
 
-### 7.2 Shared categories
+### 7.2 Seller-owned categories
 
-Categories form a shared, hierarchical tree that every seller uses:
-
-```
-Category: Electronics
-  ├── Phone
-  ├── Laptop
-  └── Tablet
-```
-
-Different sellers list under the same categories with different attribute values:
+**Decided 2026-10-06 (`K7`): each seller creates and owns the categories of their own shop.** There is no shared, marketplace-wide category tree. (This replaces the earlier design of one shared tree managed by the marketplace.)
 
 ```
-Category: Phone
-  Seller A → iPhone          (brand=Apple,   storage=128GB, …)
-  Seller B → Galaxy          (brand=Samsung, storage=256GB, …)
-  Seller C → Pixel           (brand=Google,  storage=128GB, …)
+Seller A's shop                  Seller B's shop
+  ├── Phones                       ├── Smartphones
+  ├── Phone accessories            └── Laptops
+  └── Tablets
 ```
 
-The product belongs to its seller. The category belongs to the marketplace.
+- A category **belongs to exactly one seller** and is used only by that seller's products. Seller A's "Phones" and seller B's "Smartphones" are unrelated records.
+- Categories are **flat**: no parent and no subcategories.
+- **The seller defines the attributes** of each of their categories ([§7.3](#73-products-dont-all-have-the-same-structure)).
+- Only the owning seller, while `active`, creates, renames, reorders, or removes their own categories and attributes. Staff can hide one that breaks the rules.
+- A category name is unique within a shop, ignoring letter case; two shops can use the same name.
+- An attribute's **type cannot be changed** once created, and each attribute has a stable key that survives renaming, so product data stays valid.
+- A category hidden by staff cannot be switched back on by its seller.
+- Buyers see only active categories, attributes, and options, and only for a shop that is open.
+
+Details: [`backend/docs/features/006_categories.md`](backend/docs/features/006_categories.md).
+- Only **products for sale** are covered. Rental and service listings are not (`X1`).
+
+**What this means for buyers.** Buyers browse by category *inside a shop*, and find products across shops by **search**. They cannot browse "all Phones" across the marketplace, because nothing ties one seller's category to another's. If cross-shop browsing is wanted later, it is added as a separate short list of marketplace departments that a product also points to (`K9`); it does not replace seller-owned categories.
 
 ### 7.3 Products don't all have the same structure
 
@@ -410,8 +426,25 @@ Product
 
 - Attribute values are validated **in the products service** against the category's definitions.
 - The product core MUST NOT gain category-specific columns.
-- The storage technology for attribute values (typed key/value rows, PostgreSQL `JSONB`, or a hybrid) is **not decided yet** (`K2`). Choose it when the products module is designed, and record the decision in `products/docs/`.
-- Variants (`K1`) and whether attribute definitions inherit down the category tree (`K2`) are **Open**.
+- Attribute values are stored as **typed rows**, each pointing at a real attribute and, for choices, a real option (`K2`, decided).
+- There are **no variants** (`K1`, decided), and nothing to inherit, because categories are flat.
+
+### 7.4 Product rules
+
+**Decided 2026-10-07:**
+
+- **One product, one price.** No variants: a phone in two storage sizes is two products (`K1`).
+- **Lifecycle:** `draft → published ⇄ archived`. A draft may be incomplete.
+- **To be published**, a product needs an active category, a value for every required attribute of that category, and at least one picture. A published product must stay complete: an edit that would break this is refused.
+- **No approval step.** A product is on sale as soon as its seller publishes it. Staff can hide one that breaks the rules, and its seller then cannot publish it (`K4`).
+- **Published products are never deleted, only archived**, so that later orders can still refer to them. Only a draft that was never published can be deleted.
+- **What products use cannot be deleted:** a category that still has products, and an attribute or option that products have values for, can only be switched off (`K8`).
+- **Price** is in **RWF** only for now (`T2`), more than zero, with at most two decimal places.
+- **Pictures:** up to 8 per product, JPEG or PNG, 5 MB each, public.
+- **Stock is not tracked yet** (`K3`): a published product is simply available. Inventory is a separate feature and must exist before orders.
+- **Buyers see a product only when** it is published, not hidden by staff, its category is active, and its shop is open. Otherwise it does not exist for them, and they are not told why.
+
+Details: [`backend/docs/features/007_products.md`](backend/docs/features/007_products.md).
 
 ## 8. Cart and Checkout
 
@@ -1153,11 +1186,27 @@ Register account → Apply as seller (business info + identity documents) → Ad
 - A withdrawal still **MUST** come from an approved seller. A request from a seller whose application isn't approved is rejected with `SELLER_VERIFICATION_REQUIRED`. Such a seller normally has no earnings, but the gate stays as a safety check.
 - Seller status never affects the account's ability to log in or buy.
 
-**The application covers:** business information, identity documents (national ID, passport, or driving license, front and back; stored privately), address, phone, and an admin review trail (reviewer, review time, rejection reason).
+**The application covers** (decided 2026-10-06, `S3`–`S7`):
+
+- **Business information:** shop name, description, and a business phone number.
+- **Identity:** one document (national ID, passport, or driving license), its number, and photos of the front and back (a passport needs the front only). Stored privately; the number is visible to reviewing admins only. No selfie is required.
+- **Business documents:** a business registration certificate and a TIN certificate are **optional**. A seller without a registered business can still apply.
+- **Location:** exactly one per seller. The address is required (province, district, sector; cell and village optional). GPS coordinates are optional, captured from the device or a pin the seller places.
+- **Review trail:** every status change is recorded with who made it, when, and why.
 
 **Seller lifecycle** (carried forward from the previous implementation, detailed in the sellers feature doc when it's built): `draft → pending_review → active`, with `rejected` (editable, can resubmit), `suspended` (by an admin), and `deactivated` (by the seller, reversible).
 
-**Still open:** whether a `suspended` or `deactivated` seller can withdraw money already earned (`S2`), plus real phone OTP verification and the admin review dashboard.
+**Review rules (decided 2026-10-06):**
+
+- The application can be edited only while it is a draft or after a rejection. A rejection carries a reason the seller sees, and the seller fixes and resubmits the *same* application.
+- Staff cannot approve or reject their own application.
+- Approval makes the seller `active` and gives the account the `seller` role. The role records "was approved once" and is not removed by suspension; whether a seller may trade *now* is always the seller's status.
+- Documents are JPEG, PNG, or PDF up to 5 MB, stored privately and opened only through links that expire after 5 minutes.
+- Every status change is kept in a history: who, when, and why.
+
+Details: [`backend/docs/features/004_sellers.md`](backend/docs/features/004_sellers.md).
+
+**Still open:** whether a `suspended` or `deactivated` seller can withdraw money already earned (`S2`), whether an approved seller can change business details and how (`S8`), plus real phone OTP verification and the admin review screens in the frontend.
 
 ## 16. Analytics
 
@@ -1205,7 +1254,7 @@ The modules are built in **dependency order**. Each step relies on relationships
 |---|---|---|
 | 1 | **Auth / Users** | Identity, sessions, and RBAC. Every later authorization check depends on it. |
 | 2 | **Sellers / Seller verification** | Products, plans, wallets, and withdrawals all hang off `Seller`. Admin approval of the seller application gates selling and withdrawing. |
-| 3 | **Categories** | Products must be placed in the shared tree. |
+| 3 | **Categories** | A product must be placed in one of its seller's own categories. |
 | 4 | **Product attributes** (AttributeDefinitions) | Product validation needs the category's attribute contract. |
 | 5 | **Products** | Seller-owned products with validated attribute values. Ownership checks are proven here first. |
 | 6 | **Seller plans** (plans, subscription assignment, default rate, commission resolver) | Must exist **before orders**, because each SellerOrder snapshots the applicable terms when it is created. Subscription *billing* is completed after step 9. |
@@ -1439,7 +1488,21 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 | S1 | Sellers are verified and **approved by an admin before selling**. | 2026-10-05 | [§15](#15-seller-verification-gates-withdrawals) |
 | I1 | Authentication uses a short-lived **Bearer access token** plus a rotating **refresh token** (not cookies). | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
 | I2 | Permissions are named **`<resource>.<action>` with a singular resource**, e.g. `product.create`. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
+| S3 | Business documents (registration certificate, TIN) are **optional** in a seller application; a seller without a registered business can still apply. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
+| S4 | **No selfie** is required in a seller application. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
+| S5 | The **identity document number is stored**, visible to reviewing admins only. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
+| S6 | A seller's **address is required** (province, district, sector; cell and village optional); **GPS coordinates are optional**. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
+| S7 | A seller has **exactly one location**. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
+| K1 | **No product variants**: one product has one price. | 2026-10-07 | [§7.4](#74-product-rules) |
+| K2 | Attribute values are stored as **typed rows** validated against the category; nothing inherits (categories are flat). | 2026-10-07 | [§7.3](#73-products-dont-all-have-the-same-structure) |
+| K4 | **No admin approval** of new products; staff can hide one afterwards. | 2026-10-07 | [§7.4](#74-product-rules) |
+| K8 | A category, attribute, or option that products use **cannot be deleted, only switched off**. | 2026-10-07 | [§7.4](#74-product-rules) |
+| T2 | **One currency, RWF**, for now. Currency conversion and mixed-currency orders remain undecided. | 2026-10-07 | [§7.4](#74-product-rules) |
+| K6 | Not applicable: categories are seller-owned, so there are no marketplace categories to restrict. | 2026-10-06 | [§7.2](#72-seller-owned-categories) |
+| K7 | **Each seller creates and owns the categories of their own shop**, and defines their attributes. Categories are flat, and there is no shared marketplace tree. | 2026-10-06 | [§7.2](#72-seller-owned-categories) |
+| X1 | Only **products for sale** for now; no rental or service listing types. | 2026-10-06 | [§7.2](#72-seller-owned-categories) |
 | I4 | An account must **verify its email before it can log in**. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
+| I6 | The **`admin` role always holds every permission**, and the first admin account is created at startup from environment settings. | 2026-10-06 | [§5.4](#54-authorization-and-ownership) |
 | I5 | Verification codes and password reset links are sent by **email over SMTP**. No email provider is chosen yet; any SMTP service works. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
 
 The items below are **not decided**. Code MUST NOT settle them implicitly. Record each decision here, and in the owning feature's doc, once it's made. Decisions are grouped and given IDs so the rest of the document can refer to them.
@@ -1505,12 +1568,9 @@ Actual account details are **never** decided in this document. They go into admi
 
 | ID | Decision | Blocks |
 |---|---|---|
-| K1 | Whether **product variants** need their own entity (separate price and stock per variant). | products, cart, orders |
-| K2 | Attribute inheritance down the category tree, and the attribute-value storage technology. | categories, products |
-| K3 | **Stock management** and **inventory reservation** (at cart, checkout, or payment; for how long). | products, cart, orders |
-| K4 | Whether new products need **admin approval** before going live. | products |
+| K3 | **Stock management** and **inventory reservation** (at cart, checkout, or payment; for how long). Products are built without stock; this must be decided and built **before orders**. | inventory, cart, orders |
 | K5 | Whether a **shared catalog** (several sellers offering one canonical product) is ever needed. | products |
-| K6 | Whether some categories are restricted to certain sellers or plans. | categories, products |
+| K9 | Is **cross-shop browsing by kind of product** wanted (a short list of marketplace departments in addition to each seller's own categories)? Without it, buyers find products across shops by search only. | categories, products, search |
 
 **Wallets and withdrawals**
 
@@ -1540,7 +1600,7 @@ Actual account details are **never** decided in this document. They go into admi
 | ID | Decision | Blocks |
 |---|---|---|
 | T1 | **Tax/VAT** handling, and whether prices include tax. | products, orders, revenue |
-| T2 | **Currency conversion** rules, and whether one order can mix currencies. | products, orders, wallets |
+| T3 | **Currency conversion** rules, and whether one order can mix currencies. Only RWF exists today (`T2`). | products, orders, wallets |
 
 **Items from the frontend guide not yet confirmed in this spec**
 
@@ -1548,7 +1608,6 @@ These were described in the frontend project guide before the README became the 
 
 | ID | Decision | Blocks |
 |---|---|---|
-| X1 | **Product types.** Are there several listing types, e.g. **Sale** (buy; commission), **Rental** (houses, cars; contact owner; subscription), **Service** (bookings, jobs; contact provider; subscription), each with its own fields, buyer action, and earning model? Today this spec covers sale products only. | categories, products, orders, seller_plans |
 | X2 | **Buying flow per type.** In-app checkout ([§8](#8-cart-and-checkout)) is confirmed for sale products. Do rentals and services use a "contact the seller" flow, bookings, or checkout? | orders, payments |
 | X3 | **Contact visibility tied to subscriptions.** Can an admin *require* a subscription from a seller (or exempt one), with the seller's contact info **withheld by the API** while the required subscription is inactive? How does this combine with the commission-based plans in [§10](#10-seller-plans-subscriptions-and-commission)? | seller_plans, sellers, products |
 | X4 | **Admin/platform wallet.** Does MUHUZE itself get a wallet, or is platform income tracked only through revenue records ([§13.3](#133-records-and-their-responsibilities))? | wallets, revenue |
@@ -1567,6 +1626,7 @@ These were described in the frontend project guide before the README became the 
 | ID | Decision | Blocks |
 |---|---|---|
 | S2 | Can a `suspended` or `deactivated` seller withdraw earnings they already have? | sellers, withdrawals |
+| S8 | Can an **approved seller change business details** (name, phone, location)? Freely, with a new review, or only through staff? Today it is not possible. | sellers |
 | F1 | **Referral funding:** is referral commission paid out of MUHUZE's commission? What applies to 0%-plan sellers? Who is eligible? | referrals, revenue |
 | M1 | Scope of **premium services**, and how they relate to seller plans. | premium |
 | A1 | Exact **seller and platform analytics metrics**, their definitions, and reporting periods. | analytics |

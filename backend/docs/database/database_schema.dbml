@@ -1,12 +1,25 @@
 // MUHUZE Global Link Database Schema — DBML for dbdiagram.io
 // Paste this at: https://dbdiagram.io/d → clear the editor → paste all
 //
-// STATUS: the authentication tables (accounts, refresh_tokens,
-// verification_codes, password_reset_tokens) are IMPLEMENTED:
-// backend/app/modules/auth/auth_model.py + migration 0001 (applied to the
-// development database on 2026-10-06). For those, the
-// models are the source of truth and this file must mirror them exactly.
-// The roles & permissions tables are still DESIGN only.
+// STATUS:
+//   IMPLEMENTED — authentication (accounts, refresh_tokens,
+//     verification_codes, password_reset_tokens):
+//     backend/app/modules/auth/auth_model.py + migration 0001.
+//   IMPLEMENTED — roles & permissions (roles, permissions, account_roles,
+//     role_permissions, account_permissions):
+//     backend/app/modules/authorization/authorization_model.py + migration 0002.
+//   IMPLEMENTED — sellers (sellers, seller_documents, seller_status_history):
+//     backend/app/modules/sellers/seller_model.py + migration 0003.
+//   IMPLEMENTED — categories (categories, category_attributes,
+//     category_attribute_options):
+//     backend/app/modules/categories/category_model.py + migration 0004.
+//   IMPLEMENTED — products (products, product_images,
+//     product_attribute_values):
+//     backend/app/modules/products/product_model.py + migration 0005.
+//   DESIGN only — seller plans (seller_plans, seller_subscriptions,
+//     default_commission_rates): no model, no migration.
+// For implemented tables the models are the source of truth and this
+// file must mirror them exactly.
 //
 // CONVENTION: every FK is declared inline on its column with [ref: X] — there
 // is NO separate Ref: section. A table is added only once we can answer: what
@@ -24,8 +37,9 @@
 // Constraint names follow backend/app/core/database.py NAMING_CONVENTION
 // (pk_<table>, uq_<table>_<column>, fk_<table>_<column>_<referred table>, …).
 //
-// 9 tables so far: authentication + roles & permissions.
-// Business rules behind these tables: ../../../README.md (§5.4, §20).
+// 21 tables so far: authentication + roles & permissions + sellers + categories
+// + products + seller plans.
+// Business rules behind these tables: ../../../README.md (§5.4, §7, §10, §15, §20).
 
 // ── Accounts (authentication identity) ────────────────────────────────
 // ONE `accounts` row per human, regardless of what they do on MUHUZE. There
@@ -106,8 +120,9 @@ Table password_reset_tokens {
 
 // ── Roles & permissions ───────────────────────────────────────────────
 // Roles are DYNAMIC data: admins can create, rename, and delete them. The
-// three seeded system roles (buyer | seller | admin) cannot be renamed or
-// deleted. Every new account gets `buyer` at registration.
+// three system roles (buyer | seller | admin) are seeded by migration 0002
+// and cannot be renamed or deleted. Every account gets `buyer` at
+// registration. `admin` always holds every permission.
 Table roles {
   id uuid [primary key]
   name varchar(50) [not null, unique, note: 'seeded: buyer | seller | admin']
@@ -118,7 +133,8 @@ Table roles {
 }
 
 // Permissions are a FIXED catalog defined in code (each module's
-// <feature>_permissions.py) and synced into this table. Admins cannot invent
+// <feature>_permissions.py, collected in app/core/permission_registry.py)
+// and synced into this table at startup. Admins cannot invent
 // permissions; they only assign existing ones. Naming: `<resource>.<action>`
 // with a SINGULAR resource, e.g. product.create, role.manage, payment.approve.
 Table permissions {
@@ -137,7 +153,7 @@ Table permissions {
 Table account_roles {
   id uuid [primary key]
   account_id uuid [not null, ref: > accounts.id, note: 'CASCADE delete']
-  role_id uuid [not null, ref: > roles.id, note: 'CASCADE delete']
+  role_id uuid [not null, ref: > roles.id, note: 'CASCADE delete; indexed']
   granted_by_account_id uuid [ref: > accounts.id, note: 'the admin who granted it — null = system (registration/bootstrap); SET NULL']
   created_at timestamptz [not null]
   // Unique (account_id, role_id)
@@ -162,4 +178,379 @@ Table account_permissions {
   granted_by_account_id uuid [ref: > accounts.id, note: 'the admin who granted it; SET NULL']
   created_at timestamptz [not null]
   // Unique (account_id, permission_id)
+}
+
+// ── Sellers ───────────────────────────────────────────────────────────
+// An account APPLIES to become a seller; an admin reviews the application
+// and its identity documents and approves it BEFORE the seller can list
+// products or sell (README §15, decision S1).
+//
+// `sellers` is 1:0..1 with `accounts` and is never merged into it: the
+// account answers "who is this person, can they log in"; the seller row
+// answers "how does this account trade, and is that currently trusted".
+// A seller row existing says nothing about approval: read `status`.
+// Seller status never affects the account's ability to log in or buy.
+//
+// One row per account, forever. A rejected seller edits and resubmits the
+// SAME row. Never hard-deleted: products, orders, wallets, and withdrawals
+// will reference it, so the lifecycle is always a status change.
+//
+// Lifecycle:  draft → pending_review → active
+//             pending_review → rejected → (edit) → pending_review
+//             active ⇄ suspended    (by an admin)
+//             active ⇄ deactivated  (by the seller)
+// Editable by the seller only while draft or rejected.
+//
+// Decided 2026-10-06 (README §15, §20 S3–S7): business documents are
+// optional; no selfie; the identity document number is stored; one
+// location per seller, address required, GPS coordinates optional.
+Table sellers {
+  id uuid [primary key]
+  account_id uuid [not null, unique, ref: - accounts.id, note: 'the owner — one seller per account; RESTRICT delete']
+
+  // Business information
+  business_name varchar(150) [not null, note: 'shop name shown to buyers — unique ignoring letter case: unique index on lower(business_name)']
+  business_description text
+  business_phone varchar(20) [not null, note: 'E.164 — the contact number for the business; may differ from accounts.phone']
+
+  // Identity of the applicant. The files themselves are in seller_documents.
+  identity_document_type varchar(20) [not null, note: 'national_id | passport | driving_license']
+  identity_document_number varchar(50) [not null, note: 'SENSITIVE — as printed on the document; shown to reviewing admins only, never logged']
+
+  // Location: exactly one per seller. Address fields are typed by the
+  // seller and required (Rwanda's structure); coordinates are OPTIONAL and
+  // come from the device ("detect my location") or a pin the seller places.
+  country_code char(2) [not null, default: 'RW', note: 'ISO 3166-1 alpha-2']
+  province varchar(100) [not null]
+  district varchar(100) [not null]
+  sector varchar(100) [not null]
+  cell varchar(100) [note: 'optional']
+  village varchar(100) [note: 'optional']
+  street_address varchar(255) [note: 'street, building, landmark — free text']
+  latitude numeric(9,6) [note: 'WGS 84, -90..90 — optional: null until a location is captured']
+  longitude numeric(9,6) [note: 'WGS 84, -180..180 — set together with latitude']
+  location_accuracy_m integer [note: 'accuracy in metres as reported by the device — null for a manual pin']
+  location_source varchar(20) [note: 'device | manual — how the coordinates were captured; null when there are none']
+  location_captured_at timestamptz
+
+  // Review state (the current values; the full trail is seller_status_history)
+  status varchar(20) [not null, default: 'draft', note: 'draft | pending_review | active | rejected | suspended | deactivated — only `active` can list products, sell, or withdraw']
+  status_reason varchar(500) [note: 'why it was rejected or suspended — shown to the seller; null otherwise']
+  submitted_at timestamptz [note: 'last time the application was sent for review']
+  reviewed_by_account_id uuid [ref: > accounts.id, note: 'the admin who last approved or rejected; SET NULL']
+  reviewed_at timestamptz
+  approved_at timestamptz [note: 'first approval — never cleared, so "has ever been approved" survives a suspension']
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Index (status) — the admin review queue lists pending_review sellers
+  // Check: status, identity_document_type, and location_source are in their lists
+  // Check: latitude and longitude are both null or both set, and in range
+}
+
+// The files of a seller application. Stored PRIVATELY: never a public URL.
+// Access is through a signed URL generated per request and valid for 5
+// minutes, only for the owning seller and for staff with `seller.read`.
+// One row per (seller, document_type): uploading the same type again
+// replaces the file. Files can be changed only while the seller is draft
+// or rejected.
+// Required to submit for review: identity_front, and identity_back unless
+// the identity document is a passport.
+// Optional: business_registration and tin_certificate. A seller without a
+// registered business can still apply. No selfie is collected.
+Table seller_documents {
+  id uuid [primary key]
+  seller_id uuid [not null, ref: > sellers.id, note: 'CASCADE delete']
+  document_type varchar(30) [not null, note: 'identity_front | identity_back (required) | business_registration | tin_certificate (optional)']
+  storage_public_id varchar(255) [not null, note: 'the storage provider id of the file — never a URL']
+  storage_resource_type varchar(20) [not null, note: 'as reported by the storage provider (Cloudinary keeps JPEG, PNG and PDF under `image`) — needed to build the signed URL']
+  storage_format varchar(10) [not null, note: 'jpg | png | pdf as reported by the storage provider — needed to build the signed URL']
+  original_filename varchar(255)
+  mime_type varchar(100) [not null, note: 'image/jpeg | image/png | application/pdf']
+  file_size integer [not null, note: 'bytes']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (seller_id, document_type)
+}
+
+// Append-only trail of every status change of a seller: who did it, when,
+// and why. `sellers.status` is the current state; this table is the history
+// behind it (a seller can be rejected, resubmitted, approved, suspended…),
+// which a single reviewed_by/reviewed_at pair cannot hold.
+// Rows are never updated or deleted.
+Table seller_status_history {
+  id uuid [primary key]
+  seller_id uuid [not null, ref: > sellers.id, note: 'CASCADE delete; indexed']
+  from_status varchar(20) [note: 'null for the first row (application created)']
+  to_status varchar(20) [not null]
+  reason varchar(500) [note: 'required for rejected and suspended']
+  changed_by_account_id uuid [ref: > accounts.id, note: 'the seller (submit, deactivate) or the admin (approve, reject, suspend); SET NULL']
+  created_at timestamptz [not null]
+}
+
+// ── Categories ────────────────────────────────────────────────────────
+// Decided 2026-10-06 (README §7.2, §20 K7): there is NO shared marketplace
+// tree. EACH SELLER creates and owns the categories of their own shop, and
+// defines for each one the attributes its products are described by.
+//
+//   - A category belongs to exactly one seller and is used only by that
+//     seller's products. Another seller's "Phones" is a different row.
+//   - Flat: no parent, no subcategories.
+//   - Only the owning seller (while `active`) creates, renames, reorders, or
+//     removes their categories and attributes. Staff can hide one that breaks
+//     the rules (`category.moderate`).
+//   - Sale products only: no rental or service types.
+//
+// What this gives up: buyers cannot browse "all Phones" across shops, because
+// nothing says seller A's "Phones" and seller B's "Smartphones" are the same
+// thing. Buyers browse inside a shop, and find products across shops by
+// search. If cross-shop browsing is wanted later, it is added as a separate
+// short list of marketplace departments that a product also points to; it
+// does not change these tables.
+//
+// An attribute's data_type and code never change after creation.
+// A category that still has products, and an attribute or option that
+// products have values for, cannot be deleted, only deactivated. The
+// RESTRICT foreign keys from the product tables enforce it (K8).
+Table categories {
+  id uuid [primary key]
+  seller_id uuid [not null, ref: > sellers.id, note: 'the owner — RESTRICT delete; indexed']
+  name varchar(100) [not null, note: 'unique within the seller ignoring letter case']
+  slug varchar(120) [not null, note: 'URL-safe, generated from the name and regenerated on rename; unique within the seller (a number is added on a clash: t-shirts-2)']
+  description varchar(500)
+  sort_order integer [not null, default: 0, note: 'the order the seller wants in their shop']
+  is_active boolean [not null, default: true, note: 'inactive = hidden from buyers and closed to new products; existing products keep it']
+  hidden_by_staff_at timestamptz [note: 'set when staff hide it for breaking the rules — the seller cannot reactivate it; null otherwise']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (seller_id, lower(name)); Unique (seller_id, slug)
+}
+
+// What a product in this category is described by: "Storage", "Colour",
+// "Shoe size". Defined by the seller who owns the category. Their products
+// are validated against these (required, type, allowed values), and
+// filterable ones give buyers filters inside the shop.
+Table category_attributes {
+  id uuid [primary key]
+  category_id uuid [not null, ref: > categories.id, note: 'CASCADE delete (a category can only be deleted while it has no products)']
+  code varchar(50) [not null, note: 'stable key used by the API and in product data: storage, shoe_size — made from the first name, never changed, even on rename']
+  name varchar(100) [not null, note: 'label shown to people: Storage']
+  data_type varchar(20) [not null, note: 'text | number | boolean | select | multi_select — cannot be changed after creation']
+  unit varchar(20) [note: 'for numbers: GB, kg, cm']
+  is_required boolean [not null, default: false, note: 'a product cannot be published without it']
+  is_filterable boolean [not null, default: false, note: 'offered to buyers as a filter inside the shop']
+  sort_order integer [not null, default: 0]
+  is_active boolean [not null, default: true, note: 'inactive = no longer asked for; existing product values are kept']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (category_id, code)
+  // Check: data_type in its list
+}
+
+// The allowed values of a `select` / `multi_select` attribute: Colour →
+// Black, White, Blue. A separate table (not a list inside the attribute) so
+// a value can be renamed or retired without touching products that use it.
+Table category_attribute_options {
+  id uuid [primary key]
+  attribute_id uuid [not null, ref: > category_attributes.id, note: 'CASCADE delete']
+  value varchar(100) [not null, note: 'unique within the attribute ignoring letter case']
+  sort_order integer [not null, default: 0]
+  is_active boolean [not null, default: true, note: 'inactive = not offered for new products; existing products keep it']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (attribute_id, lower(value))
+}
+
+// ── Products ──────────────────────────────────────────────────────────
+// What a seller offers for sale. Every product belongs to exactly one seller
+// and sits in exactly one of THAT seller's categories (README §7).
+//
+// The table holds only what every product has (name, price, status…).
+// Anything specific to a kind of product (storage, colour, shoe size) is an
+// attribute value, validated against the category's attributes.
+//
+// Never hard-deleted once it has been published: orders will keep a snapshot
+// of the product, and history must stay explainable. It is archived instead.
+//
+// Decided 2026-10-07 (README §7.4, §20 K1–K4, K8, T2):
+//   1. No variants: one product has one price.
+//   2. Attribute values are typed rows (below), not free-form JSON.
+//   3. No stock here; it comes with inventory (008).
+//   4. No approval step; staff can hide a product that breaks the rules.
+//   5. One currency for now: RWF.
+//   6. To publish: an active category, a value for every required
+//      attribute, and at least one image. A published product must stay so.
+//   7. Up to 8 images, JPEG or PNG, 5 MB each, stored PUBLICLY.
+//   8. draft → published ⇄ archived. Only a never-published draft is deleted.
+// Buyers see a product only when it is published, not hidden by staff, in
+// an active category, and its seller is active.
+Table products {
+  id uuid [primary key]
+  seller_id uuid [not null, ref: > sellers.id, note: 'the owner — RESTRICT delete; indexed']
+  category_id uuid [not null, ref: > categories.id, note: 'one of the SAME seller\'s categories (checked by the service); RESTRICT delete — a category with products cannot be deleted']
+  name varchar(200) [not null]
+  slug varchar(220) [not null, note: 'URL-safe, generated from the name; unique within the seller']
+  description text
+  price numeric(14,2) [not null, note: 'what the buyer pays for one unit — never a float; >= 0']
+  currency char(3) [not null, default: 'RWF', note: 'ISO 4217 — only RWF for now']
+  status varchar(20) [not null, default: 'draft', note: 'draft | published | archived — only `published` is visible to buyers and can be bought']
+  published_at timestamptz [note: 'first time it was published — never cleared; a product with this set cannot be deleted']
+  hidden_by_staff_at timestamptz [note: 'set when staff hide it for breaking the rules — not visible to buyers and the seller cannot republish it; null otherwise']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (seller_id, slug)
+  // Index (seller_id, status) — a seller's own product list
+  // Index (category_id) — a category's products
+  // Index (status, published_at) — buyer listings, newest first
+  // Check: status in its list; price >= 0
+}
+
+// The pictures of a product, in the seller's order. The first one
+// (lowest sort_order) is the main image shown in listings.
+// Stored PUBLICLY: these are meant to be seen by anyone.
+Table product_images {
+  id uuid [primary key]
+  product_id uuid [not null, ref: > products.id, note: 'CASCADE delete; indexed']
+  storage_public_id varchar(255) [not null, note: 'the storage provider id of the file']
+  storage_format varchar(10) [not null, note: 'jpg | png']
+  width integer [note: 'pixels, as reported by the storage provider']
+  height integer
+  sort_order integer [not null, default: 0]
+  created_at timestamptz [not null]
+}
+
+// This product's value for ONE attribute of its category.
+//   text / number / boolean  → one row, with the matching value_* column set
+//   select                   → one row, pointing at the chosen option
+//   multi_select             → one row PER chosen option
+// Exactly one of value_text / value_number / value_boolean / option_id is
+// set, and it matches the attribute's data_type (checked by the service).
+// Because rows point at attributes and options with RESTRICT, an attribute
+// or option that products use cannot be deleted, only switched off: this is
+// what enforces README §20 K8.
+Table product_attribute_values {
+  id uuid [primary key]
+  product_id uuid [not null, ref: > products.id, note: 'CASCADE delete']
+  attribute_id uuid [not null, ref: > category_attributes.id, note: 'an attribute of the product\'s category; RESTRICT delete']
+  option_id uuid [ref: > category_attribute_options.id, note: 'for select / multi_select; RESTRICT delete']
+  value_text varchar(500)
+  value_number numeric(18,4) [note: 'in the attribute\'s unit']
+  value_boolean boolean
+  created_at timestamptz [not null]
+  // Unique (product_id, attribute_id, option_id) NULLS NOT DISTINCT (PostgreSQL 15+):
+  //   one row per attribute for scalar types, one row per option for multi_select
+  // Index (attribute_id, option_id), (attribute_id, value_number) — buyer filters
+  // Check: exactly one of the four value columns is set
+}
+
+// ── Seller plans, subscriptions, and commission (DESIGN — awaiting review) ──
+// What MUHUZE charges a seller: a subscription fee for a plan, and a
+// commission on each sale. A plan trades one against the other (a dearer
+// plan has a lower commission). README §10.
+//
+// The one question every order will ask is: "what commission rate applies
+// to this seller right now?"
+//     an applicable subscription  → its commission rate (may be 0%)
+//     none                        → the current default commission rate
+// The answer is copied onto the order when it is created and never
+// recalculated, so nothing below ever changes a past sale.
+//
+// NO plan names, prices, or rates are written in code: admins create them.
+//
+// PROPOSED, please confirm (README §20 C3, C5–C7, C9–C12):
+//   P1. Each plan has its own length in days (30, 365, …), set by the admin. (C3)
+//   P2. A subscription keeps the price and commission rate it started with.
+//       Editing a plan later affects only new subscriptions. (C5)
+//   P3. No automatic renewal. The seller requests again. (C6)
+//   P4. No grace period: when a subscription ends, the default rate applies
+//       from that moment. Selling is never blocked for lack of a plan. (C7)
+//   P5. Getting a plan, until online payment exists: the seller requests a
+//       plan (pending) and pays MUHUZE outside the app; an admin activates it.
+//       An admin can also assign a plan directly. (C10)
+//   P6. Renewing the SAME plan early adds on: the new period starts when the
+//       current one ends, so no paid days are lost. Switching to a DIFFERENT
+//       plan takes effect at once and ends the current one, with no refund
+//       or proration. (C9)
+//   P7. There is no "standard" plan row. A seller without a subscription is
+//       simply on the default rate. (C11)
+//   P8. Subscriptions cannot be paid from the wallet balance. (C12)
+//   P9. The default commission rate has no built-in value. Until an admin
+//       sets one, orders cannot be created.
+
+// The catalogue of plans, managed by admins.
+// A plan that any subscription has used is retired, never deleted.
+Table seller_plans {
+  id uuid [primary key]
+  code varchar(50) [not null, unique, note: 'stable key: basic, business — lowercase letters, digits, underscores; never changes']
+  name varchar(100) [not null, note: 'shown to sellers: Business']
+  description varchar(1000) [note: 'what the seller gets']
+  price numeric(14,2) [not null, note: 'subscription fee for one period; >= 0 (a free plan is allowed)']
+  currency char(3) [not null, default: 'RWF']
+  duration_days integer [not null, note: 'length of one period: 30, 365, … ; > 0']
+  commission_rate numeric(5,2) [not null, note: 'percent of each sale MUHUZE keeps: 0.00 to 100.00']
+  status varchar(20) [not null, default: 'active', note: 'active | retired — a retired plan cannot be requested or assigned; existing subscriptions to it run their course']
+  created_by_account_id uuid [ref: > accounts.id, note: 'SET NULL']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Check: price >= 0; duration_days > 0; commission_rate between 0 and 100; status in its list
+}
+
+// A seller's plan for one period. A seller has a HISTORY of these, never one
+// editable field. Rows are never deleted.
+//
+// Status: pending → active        (an admin activates it)
+//         pending → rejected      (an admin declines the request)
+//         pending → cancelled     (the seller withdraws the request)
+//         active  → cancelled     (an admin ends it early, or it was replaced)
+// "Expired" is not a status: an active subscription whose ends_at has passed
+// is simply no longer applicable.
+//
+// APPLICABLE at a moment = status is `active` AND starts_at <= moment < ends_at.
+// At most one subscription per seller is applicable at any moment. The
+// database guarantees it (an exclusion constraint on the periods), it is not
+// just checked in code.
+//
+// The plan_* columns are a SNAPSHOT of the plan when the subscription was
+// requested (PROPOSED P2). They are what applies, whatever the plan says now.
+Table seller_subscriptions {
+  id uuid [primary key]
+  seller_id uuid [not null, ref: > sellers.id, note: 'RESTRICT delete; indexed']
+  plan_id uuid [not null, ref: > seller_plans.id, note: 'RESTRICT delete']
+  status varchar(20) [not null, default: 'pending', note: 'pending | active | rejected | cancelled']
+
+  plan_name varchar(100) [not null, note: 'snapshot']
+  price numeric(14,2) [not null, note: 'snapshot — the fee owed for this period']
+  currency char(3) [not null, note: 'snapshot']
+  duration_days integer [not null, note: 'snapshot']
+  commission_rate numeric(5,2) [not null, note: 'snapshot — the rate orders use while this subscription is applicable']
+
+  starts_at timestamptz [note: 'set on activation; null while pending']
+  ends_at timestamptz [note: 'starts_at + duration_days; brought forward when it is cancelled or replaced']
+
+  requested_by_account_id uuid [ref: > accounts.id, note: 'the seller, or the admin who assigned it directly; SET NULL']
+  decided_by_account_id uuid [ref: > accounts.id, note: 'the admin who activated or rejected it; SET NULL']
+  decided_at timestamptz
+  ended_by_account_id uuid [ref: > accounts.id, note: 'who cancelled it; SET NULL']
+  status_reason varchar(500) [note: 'why it was rejected or cancelled — shown to the seller']
+  payment_reference varchar(100) [note: 'what the admin checked before activating: a MoMo or bank reference. Replaced by a link to the payment record when the payments feature exists']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Exclusion: no two ACTIVE subscriptions of one seller with overlapping [starts_at, ends_at)
+  // Unique (seller_id) where status = 'pending' — one open request per seller
+  // Check: status in its list; ends_at > starts_at; active rows have both dates
+  // Index (seller_id, status)
+}
+
+// MUHUZE's commission rate for sellers with no applicable subscription.
+// Effective-dated and append-only: a change is a NEW row, so there is a full
+// record of who set which rate and from when. The current rate is the row
+// with the latest effective_from that is not in the future.
+Table default_commission_rates {
+  id uuid [primary key]
+  rate numeric(5,2) [not null, note: 'percent: 0.00 to 100.00']
+  effective_from timestamptz [not null, unique, note: 'when it starts to apply — now, or a future moment']
+  note varchar(500) [note: 'why it was changed']
+  set_by_account_id uuid [ref: > accounts.id, note: 'the admin who set it; SET NULL']
+  created_at timestamptz [not null]
+  // Check: rate between 0 and 100
 }
