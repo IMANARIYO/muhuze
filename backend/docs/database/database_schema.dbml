@@ -1,0 +1,165 @@
+// MUHUZE Global Link Database Schema — DBML for dbdiagram.io
+// Paste this at: https://dbdiagram.io/d → clear the editor → paste all
+//
+// STATUS: the authentication tables (accounts, refresh_tokens,
+// verification_codes, password_reset_tokens) are IMPLEMENTED:
+// backend/app/modules/auth/auth_model.py + migration 0001 (applied to the
+// development database on 2026-10-06). For those, the
+// models are the source of truth and this file must mirror them exactly.
+// The roles & permissions tables are still DESIGN only.
+//
+// CONVENTION: every FK is declared inline on its column with [ref: X] — there
+// is NO separate Ref: section. A table is added only once we can answer: what
+// does it represent, who owns it, what it references, its cardinality, and
+// what constrains the relation.
+// Operators: `>` many-to-one, `-` one-to-one, `<` one-to-many.
+// UUID PKs everywhere (backend/AGENTS.md §17).
+// ON DELETE rules are noted on the FK column (CASCADE / SET NULL / RESTRICT);
+// no note = the database default (NO ACTION).
+// Unique constraints spanning several columns are written as a trailing
+// comment inside the table.
+// Every table has created_at / updated_at unless it is an append-only record,
+// which has created_at only.
+// Every timestamp is `timestamptz`, written in UTC.
+// Constraint names follow backend/app/core/database.py NAMING_CONVENTION
+// (pk_<table>, uq_<table>_<column>, fk_<table>_<column>_<referred table>, …).
+//
+// 9 tables so far: authentication + roles & permissions.
+// Business rules behind these tables: ../../../README.md (§5.4, §20).
+
+// ── Accounts (authentication identity) ────────────────────────────────
+// ONE `accounts` row per human, regardless of what they do on MUHUZE. There
+// are NO separate users / buyers / sellers / admins login tables: what an
+// account may do comes from its roles and permissions (below), never from
+// which table it lives in. Basic personal info (name, photo) lives here too.
+// Role-specific data goes in its own 1:1 table when that feature is built
+// (e.g. the seller business profile), never as extra columns here.
+// Accounts are never hard-deleted once they have orders or financial
+// history: they are deactivated (status), so history stays auditable.
+Table accounts {
+  id uuid [primary key]
+  email varchar(255) [not null, unique, note: 'login identifier — stored lowercase']
+  phone varchar(20) [unique, note: 'nullable — E.164 format, e.g. +2507XXXXXXXX']
+  password_hash varchar(255) [not null, note: 'Argon2 — the plain password is never stored or logged']
+  full_name varchar(150) [not null]
+  profile_picture varchar(255) [note: 'storage URL/public id — one photo per person, shared across all roles']
+  status varchar(20) [not null, default: 'active', note: 'active | suspended | deactivated — suspended = blocked by an admin; deactivated = closed by the owner. Only active accounts can log in']
+  status_reason varchar(255) [note: 'why the account was suspended/deactivated — null while active']
+  status_changed_at timestamptz [note: 'when status last changed']
+  is_verified boolean [not null, default: false, note: 'email verified via OTP (verification_codes) — an unverified account cannot log in']
+  verified_at timestamptz
+  last_login_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Check: email = lower(email)
+  // Check: status IN ('active', 'suspended', 'deactivated')
+}
+
+// ── Sessions & one-time tokens ────────────────────────────────────────
+// Login returns a short-lived JWT access token (NOT stored) plus an opaque
+// refresh token. Only the refresh token's hash is stored, one row per
+// session/device, so sessions can be listed and revoked individually.
+// Rotation: using a refresh token revokes it and issues a new row.
+// Reuse detection: presenting a token whose rotated_at is set means a stale
+// copy is in someone's hands, so every row of the account is revoked.
+// Password reset revokes every row for the account.
+Table refresh_tokens {
+  id uuid [primary key, note: 'the session id — carried in the access token as the `sid` claim']
+  account_id uuid [not null, ref: > accounts.id, note: 'CASCADE delete; indexed']
+  token_hash varchar(64) [not null, unique, note: 'SHA-256 of the token — the raw token is never stored']
+  expires_at timestamptz [not null]
+  revoked_at timestamptz [note: 'set when the session ends for ANY reason (logout, rotation, password change/reset, reuse) — null = still valid']
+  rotated_at timestamptz [note: 'set only when the token was exchanged for a new one — using it again is treated as theft']
+  user_agent varchar(255) [note: 'client that opened the session — shown in the session list']
+  ip_address varchar(45) [note: 'IPv4 or IPv6 of the client that opened the session']
+  created_at timestamptz [not null]
+}
+
+// One-time codes sent to the account owner (email OTP now; phone OTP later).
+// Only the hash is stored. A code is valid when: not expired AND not used
+// AND attempts below the limit (VERIFICATION_CODE_MAX_ATTEMPTS, default 5).
+// Requesting a new code deletes the previous unused one for that purpose.
+Table verification_codes {
+  id uuid [primary key]
+  account_id uuid [not null, ref: > accounts.id, note: 'CASCADE delete']
+  purpose varchar(30) [not null, note: 'email_verification | phone_verification']
+  code_hash varchar(64) [not null]
+  attempts smallint [not null, default: 0, note: 'wrong guesses so far — the code is dead once the limit is reached']
+  expires_at timestamptz [not null]
+  used_at timestamptz [note: 'set when the code is confirmed — null = unused']
+  created_at timestamptz [not null]
+  // Index (account_id, purpose)
+  // Check: purpose IN ('email_verification', 'phone_verification'); attempts >= 0
+}
+
+// Single-use password reset links. Using one sets used_at, changes the
+// password, and revokes all of the account's refresh_tokens. Requesting a
+// new link deletes the account's previous unused ones.
+Table password_reset_tokens {
+  id uuid [primary key]
+  account_id uuid [not null, ref: > accounts.id, note: 'CASCADE delete; indexed']
+  token_hash varchar(64) [not null, unique]
+  expires_at timestamptz [not null]
+  used_at timestamptz [note: 'null = unused']
+  created_at timestamptz [not null]
+}
+
+// ── Roles & permissions ───────────────────────────────────────────────
+// Roles are DYNAMIC data: admins can create, rename, and delete them. The
+// three seeded system roles (buyer | seller | admin) cannot be renamed or
+// deleted. Every new account gets `buyer` at registration.
+Table roles {
+  id uuid [primary key]
+  name varchar(50) [not null, unique, note: 'seeded: buyer | seller | admin']
+  description varchar(255)
+  is_system boolean [not null, default: false, note: 'system roles cannot be renamed or deleted']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+// Permissions are a FIXED catalog defined in code (each module's
+// <feature>_permissions.py) and synced into this table. Admins cannot invent
+// permissions; they only assign existing ones. Naming: `<resource>.<action>`
+// with a SINGULAR resource, e.g. product.create, role.manage, payment.approve.
+Table permissions {
+  id uuid [primary key]
+  code varchar(100) [not null, unique, note: '<resource>.<action>, singular resource — e.g. product.create']
+  name varchar(150) [not null, note: 'human-readable label for the admin UI']
+  description varchar(255)
+  resource varchar(50) [not null, note: 'e.g. product']
+  action varchar(50) [not null, note: 'e.g. create']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Unique (resource, action)
+}
+
+// Which roles an account holds (many-to-many accounts ↔ roles).
+Table account_roles {
+  id uuid [primary key]
+  account_id uuid [not null, ref: > accounts.id, note: 'CASCADE delete']
+  role_id uuid [not null, ref: > roles.id, note: 'CASCADE delete']
+  granted_by_account_id uuid [ref: > accounts.id, note: 'the admin who granted it — null = system (registration/bootstrap); SET NULL']
+  created_at timestamptz [not null]
+  // Unique (account_id, role_id)
+}
+
+// Which permissions a role carries (many-to-many roles ↔ permissions).
+Table role_permissions {
+  id uuid [primary key]
+  role_id uuid [not null, ref: > roles.id, note: 'CASCADE delete']
+  permission_id uuid [not null, ref: > permissions.id, note: 'CASCADE delete']
+  created_at timestamptz [not null]
+  // Unique (role_id, permission_id)
+}
+
+// A permission granted straight to ONE account, bypassing roles. GRANT only:
+// there is no "deny" row. Effective permissions of an account =
+// (permissions of all its roles) ∪ (its direct permissions), deduplicated.
+Table account_permissions {
+  id uuid [primary key]
+  account_id uuid [not null, ref: > accounts.id, note: 'CASCADE delete']
+  permission_id uuid [not null, ref: > permissions.id, note: 'CASCADE delete']
+  granted_by_account_id uuid [ref: > accounts.id, note: 'the admin who granted it; SET NULL']
+  created_at timestamptz [not null]
+  // Unique (account_id, permission_id)
+}

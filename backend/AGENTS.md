@@ -56,7 +56,7 @@ backend/
 ├── app/
 │   ├── main.py              # create_app(): logging, handlers, middleware, routers
 │   ├── config/              # settings.py (pydantic-settings)
-│   ├── core/                # logging, request_context_middleware, (later) database, security
+│   ├── core/                # logging, request_context_middleware, database, security, clock, model_registry
 │   ├── api/                 # health_routes.py; v1/api_v1_routes.py aggregates feature routes under /api/v1
 │   ├── domain/              # pure business rules & internal interfaces (no FastAPI/DB/provider code)
 │   ├── infrastructure/      # adapters: payments/, storage/, notifications/, redis/, external_services/
@@ -176,13 +176,15 @@ The shared filter, sort, and search helpers are added, and documented in `respon
 
 - Authentication: *who are you?* Authorization: *are you allowed to do this?* Every protected operation enforces both.
 - Check the **RBAC permission** (`require_permission`) **and resource ownership** (in the service). A permission never grants access to *another* user's resource. Admin access to resources the admin doesn't own is a separate, explicit permission.
-- Permissions are code-defined (`*_permissions.py`) and synced to the database. Roles are dynamic data.
+- Permissions are code-defined (`*_permissions.py`) and synced to the database. Roles are dynamic data. Permission codes are `<resource>.<action>` with a **singular** resource: `product.create`, `role.manage`.
+- Clients authenticate with a short-lived JWT access token (`Authorization: Bearer`) and an opaque, hashed, rotating refresh token. No cookies.
+- The schema design lives in [`docs/database/database_schema.dbml`](docs/database/database_schema.dbml) (dbdiagram.io format). Add a table there, following its conventions, before writing its model.
 - Never trust client-provided roles, permissions, prices, totals, amounts, seller IDs, or payment status. Hiding a button is not security.
 - Security-sensitive logic (passwords, tokens, ownership, money) never lives in routes.
 
 ## 13. Transactions, concurrency, idempotency
 
-- **Transactions are deliberate.** Operations that must succeed or fail together (for example: create order + order items + reserve stock) run in one transaction, owned by the **service**. Repositories don't commit on their own when a larger operation needs one transaction.
+- **Transactions are deliberate.** Operations that must succeed or fail together (for example: create order + order items + reserve stock) run in one transaction, owned by the **service**. Repositories never commit, and neither does the session dependency (`get_session` in `app/core/database.py`): whatever a service doesn't commit is rolled back when the request ends.
 - **Concurrency:** assume simultaneous requests for inventory, wallets, payments, order status, referrals, and balances. Use constraints, row locks, atomic updates, and unique keys.
 - **Idempotency:** retryable operations (payments, orders, wallet transactions, webhooks, notifications) must never create duplicate effects. Enforce it in the database, not only in code.
 
@@ -211,7 +213,7 @@ Never hardcode secrets, database URLs, API keys, provider credentials, or enviro
 
 ## 17. Database
 
-- Every schema change goes through an **Alembic migration**. Never alter a database by hand.
+- Every schema change goes through an **Alembic migration** (`migrations/`, applied with `uv run alembic upgrade head`). Never alter a database by hand. Register a feature's first model file in `app/core/model_registry.py`. All timestamps are `timestamptz`, created with `utc_now()`.
 - UUID primary keys unless an ADR says otherwise. `created_at`/`updated_at` on every table.
 - Explicit foreign keys, unique and check constraints, and indexes based on real query patterns. Avoid N+1 queries.
 - No queries from routes, and no duplicate query implementations. Use repositories.
@@ -229,6 +231,7 @@ Before adding a package: does the project already solve this? Is the standard li
 ## 20. Testing
 
 - `tests/unit/` (isolated logic), `tests/integration/` (service + repository + real PostgreSQL), `tests/api/` (HTTP through the app, including authentication and authorization), `tests/e2e/` (critical workflows).
+- Database tests use the `db_client` / `session_factory` fixtures (`tests/conftest.py`). They need `TEST_DATABASE_URL`, a database whose name ends with `_test`; its schema is rebuilt from the migrations on every run, and each test is rolled back.
 - Tests are part of the feature. Critical business rules MUST be tested. Don't write meaningless tests to inflate coverage, and build depth as features stabilize.
 - Financial tests assert **persisted records**, not just responses.
 - **Never run the test suite yourself.** Give the user the command, and don't re-run it after each edit:
