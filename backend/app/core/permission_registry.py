@@ -9,6 +9,7 @@ from app.core.permissions import PermissionDefinition
 from app.modules.authorization.authorization_permissions import AUTHORIZATION_PERMISSIONS
 from app.modules.categories.category_permissions import CATEGORY_PERMISSIONS
 from app.modules.products.product_permissions import PRODUCT_PERMISSIONS
+from app.modules.seller_plans.seller_plan_permissions import SELLER_PLAN_PERMISSIONS
 from app.modules.sellers.seller_permissions import SELLER_PERMISSIONS
 
 ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
@@ -16,6 +17,7 @@ ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *SELLER_PERMISSIONS,
     *CATEGORY_PERMISSIONS,
     *PRODUCT_PERMISSIONS,
+    *SELLER_PLAN_PERMISSIONS,
 )
 
 _codes = [permission.code for permission in ALL_PERMISSIONS]

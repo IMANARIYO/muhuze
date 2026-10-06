@@ -8,4 +8,5 @@ from app.modules.auth import auth_model  # noqa: F401
 from app.modules.authorization import authorization_model  # noqa: F401
 from app.modules.categories import category_model  # noqa: F401
 from app.modules.products import product_model  # noqa: F401
+from app.modules.seller_plans import seller_plan_model  # noqa: F401
 from app.modules.sellers import seller_model  # noqa: F401
