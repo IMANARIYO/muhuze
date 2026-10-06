@@ -117,7 +117,7 @@ This repository is a **ground-up backend rebuild**.
 | Path | What it is |
 |---|---|
 | `README.md` | This specification. |
-| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, **authentication**, **roles and permissions**, **sellers** with private document storage, seller-owned **categories**, and **products** (the last two awaiting their first passing test run; see [`backend/docs/features/`](backend/docs/features/FEATURE-ROADMAP.md)). Seller plans are next. |
+| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, **authentication**, **roles and permissions**, **sellers** with private document storage, seller-owned **categories**, **products**, and **seller plans with the commission resolver** (the last awaiting its first passing test run; see [`backend/docs/features/`](backend/docs/features/FEATURE-ROADMAP.md)). Inventory and cart are next. |
 | `frontend/` | Frontend (Vite + React + TypeScript), currently on demo data. It displays data and requests operations. It never computes or mutates money. Its guide is [`frontend/PROJECT.md`](frontend/PROJECT.md), which defers to this README for business rules. |
 | `old project/` | The original prototype, kept for reference. |
 
@@ -574,7 +574,7 @@ BUSINESS    fee = 30,000 RWF / month   commission = 4%
 PARTNER     fee = 100,000 RWF / month  commission = 0%
 ```
 
-The real plan names, prices, billing periods, and rates are **Open** (`C1`–`C4`), and must stay admin-configurable.
+The real plan names, prices, and rates (`C1`, `C2`, `C4`) are **business values an admin enters as data**. No plan is written in code or seeded. Each plan has its own length in days (`C3`, decided).
 
 ### 10.2 Seller subscription assignment
 
@@ -592,7 +592,20 @@ Requirements:
 
 - At most one subscription is **applicable** to a seller at a given moment. This must be guaranteed, not merely expected.
 - Expired, cancelled, or not-yet-active subscriptions are **not** applicable.
-- Several things are **Open**: whether a subscription keeps the plan's fee and rate as they were when it started, or follows later admin edits to the plan (`C5`); renewal (`C6`); grace periods (`C7`); mid-period plan changes and proration (`C9`); and whether activation waits for the subscription payment (`C10`). Whatever is decided, historical *transactions* are protected by the SellerOrder snapshot ([§11](#11-historical-correctness-and-snapshots)).
+- "At most one" is guaranteed by the database (an exclusion constraint on the periods of active subscriptions), not only by application code.
+
+**Decided 2026-10-07:**
+
+- **A subscription keeps the price and commission rate it was requested with** (`C5`). Editing a plan affects only later requests.
+- **No automatic renewal** (`C6`). The seller requests again.
+- **No grace period** (`C7`). When a subscription ends, the default rate applies from that moment. A seller is never blocked from selling for lack of a plan.
+- **Renewing the same plan early adds on:** the new period starts when the current one ends. **Switching to a different plan takes effect at once**, ending the current one, with no refund or proration (`C9`).
+- **Activation follows payment** (`C10`). Until online payment exists, the seller requests a plan and pays MUHUZE outside the app; an admin activates it after checking the payment, recording its reference. An admin can also assign a plan directly. When the payments feature exists, a confirmed payment activates it.
+- Rejecting a request and ending a subscription early each need a reason the seller sees.
+
+Historical *transactions* are protected separately, by the SellerOrder snapshot ([§11](#11-historical-correctness-and-snapshots)).
+
+Details: [`backend/docs/features/017_seller_plans.md`](backend/docs/features/017_seller_plans.md).
 
 ### 10.3 Commission precedence (confirmed)
 
@@ -608,14 +621,16 @@ Use the MUHUZE default seller commission rate
 
 - This is resolved **per SellerOrder at the moment it is created**, by **one** resolver owned by `seller_plans` (e.g. `resolve_commercial_terms(seller, at)`). Orders call it, and nothing else computes a commission rate.
 - The rate that is actually used, together with the plan/subscription reference (or "default rate"), is **persisted on the SellerOrder** and never recalculated ([§11](#11-historical-correctness-and-snapshots)).
-- Whether `STANDARD` is a real plan that every seller is assigned, or simply means "no plan, so the default applies", is **Open** (`C11`). Either way, the precedence above holds.
+- There is **no "standard" plan** (`C11`, decided): a seller with no subscription in force is simply on the default rate.
+- If there is neither a subscription in force nor a default rate, the resolver **refuses**. It never falls back to a number written in code.
 
 ### 10.4 Default commission rate
 
 - MUHUZE has a **configurable default transaction commission rate** for sellers without an applicable active plan, e.g. 10% (example).
 - It is **business configuration** owned by `seller_plans`, changed through an admin endpoint guarded by an explicit permission, and read only through the resolver.
 - It **MUST NOT** be duplicated as a constant in services, schemas, tests, or the frontend.
-- *Recommended:* store it as **effective-dated** configuration that records who changed it, when, and the old and new value, so commercial terms never need a deploy and every change is auditable.
+- It is stored as **effective-dated, append-only** rows: a change adds a row with the moment it takes effect, who set it, and why. Nothing is edited, a change can be scheduled for a future moment, and it cannot be backdated.
+- It has **no built-in value**. Until an admin sets one, a seller without a plan has no rate and orders cannot be created for them.
 - Changing the default **never** affects existing orders. Order A created at 10% stays at 10% after the default changes to 8%; Order B created afterwards uses 8%.
 - The real default percentage is **Open** (`C4`).
 
@@ -658,7 +673,7 @@ SellerSubscription active
 SubscriptionRevenue recorded
 ```
 
-Whether a subscription can be paid from the seller's wallet balance instead of an external payment is **Open** (`C12`).
+A subscription **cannot be paid from the seller's wallet balance** (`C12`, decided).
 
 ## 11. Historical Correctness and Snapshots
 
@@ -1493,6 +1508,14 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 | S5 | The **identity document number is stored**, visible to reviewing admins only. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
 | S6 | A seller's **address is required** (province, district, sector; cell and village optional); **GPS coordinates are optional**. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
 | S7 | A seller has **exactly one location**. | 2026-10-06 | [§15](#15-seller-verification-gates-withdrawals) |
+| C3 | Each plan has **its own length in days**, set by the admin. | 2026-10-07 | [§10.1](#101-configurable-seller-plans) |
+| C5 | A subscription **keeps the price and commission rate it was requested with**. | 2026-10-07 | [§10.2](#102-seller-subscription-assignment) |
+| C6 | **No automatic renewal.** | 2026-10-07 | [§10.2](#102-seller-subscription-assignment) |
+| C7 | **No grace period**: the default rate applies as soon as a subscription ends. Selling is never blocked for lack of a plan. | 2026-10-07 | [§10.2](#102-seller-subscription-assignment) |
+| C9 | Renewing the **same plan** early starts when the current one ends; switching to a **different plan** takes effect at once, with no refund or proration. | 2026-10-07 | [§10.2](#102-seller-subscription-assignment) |
+| C10 | A subscription is **activated after its payment is confirmed**: by an admin today, by the payments feature later. | 2026-10-07 | [§10.2](#102-seller-subscription-assignment) |
+| C11 | There is **no "standard" plan**; no subscription means the default rate. | 2026-10-07 | [§10.3](#103-commission-precedence-confirmed) |
+| C12 | Subscriptions **cannot be paid from the wallet**. | 2026-10-07 | [§10.6](#106-muhuze-revenue-sources) |
 | K1 | **No product variants**: one product has one price. | 2026-10-07 | [§7.4](#74-product-rules) |
 | K2 | Attribute values are stored as **typed rows** validated against the category; nothing inherits (categories are flat). | 2026-10-07 | [§7.3](#73-products-dont-all-have-the-same-structure) |
 | K4 | **No admin approval** of new products; staff can hide one afterwards. | 2026-10-07 | [§7.4](#74-product-rules) |
@@ -1513,16 +1536,8 @@ The items below are **not decided**. Code MUST NOT settle them implicitly. Recor
 |---|---|---|
 | C1 | Exact subscription plans: names and benefits. | seller_plans |
 | C2 | Exact subscription prices and currency. | seller_plans |
-| C3 | Billing period: monthly, yearly, or both. | seller_plans, payments |
 | C4 | Exact commission rate for each plan, and the **exact default commission percentage**. | seller_plans |
-| C5 | Whether a subscription keeps the fee and rate it started with, or follows later admin edits to its plan. | seller_plans |
-| C6 | Whether subscriptions **renew automatically**. | seller_plans, payments |
-| C7 | **Grace period** after a subscription expires. | seller_plans |
 | C8 | Commission base: before or after discounts? Does it include delivery? Who funds discounts and promotions? | orders, revenue |
-| C9 | Mid-period plan upgrades and downgrades, and proration. | seller_plans |
-| C10 | Whether a subscription activates only after its payment is confirmed. | seller_plans, payments |
-| C11 | Whether `STANDARD` is an assigned plan or simply "no plan, so the default applies". | seller_plans |
-| C12 | Whether subscriptions can be paid from the wallet balance. | seller_plans, wallets |
 | C13 | Rounding rule for commission and split amounts, and where any remainder goes. | orders, revenue |
 
 **Payments**

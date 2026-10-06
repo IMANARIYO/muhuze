@@ -16,8 +16,9 @@
 //   IMPLEMENTED — products (products, product_images,
 //     product_attribute_values):
 //     backend/app/modules/products/product_model.py + migration 0005.
-//   DESIGN only — seller plans (seller_plans, seller_subscriptions,
-//     default_commission_rates): no model, no migration.
+//   IMPLEMENTED — seller plans (seller_plans, seller_subscriptions,
+//     default_commission_rates):
+//     backend/app/modules/seller_plans/seller_plan_model.py + migration 0006.
 // For implemented tables the models are the source of truth and this
 // file must mirror them exactly.
 //
@@ -443,7 +444,7 @@ Table product_attribute_values {
   // Check: exactly one of the four value columns is set
 }
 
-// ── Seller plans, subscriptions, and commission (DESIGN — awaiting review) ──
+// ── Seller plans, subscriptions, and commission ───────────────────────
 // What MUHUZE charges a seller: a subscription fee for a plan, and a
 // commission on each sale. A plan trades one against the other (a dearer
 // plan has a lower commission). README §10.
@@ -457,25 +458,19 @@ Table product_attribute_values {
 //
 // NO plan names, prices, or rates are written in code: admins create them.
 //
-// PROPOSED, please confirm (README §20 C3, C5–C7, C9–C12):
-//   P1. Each plan has its own length in days (30, 365, …), set by the admin. (C3)
-//   P2. A subscription keeps the price and commission rate it started with.
-//       Editing a plan later affects only new subscriptions. (C5)
-//   P3. No automatic renewal. The seller requests again. (C6)
-//   P4. No grace period: when a subscription ends, the default rate applies
-//       from that moment. Selling is never blocked for lack of a plan. (C7)
-//   P5. Getting a plan, until online payment exists: the seller requests a
-//       plan (pending) and pays MUHUZE outside the app; an admin activates it.
-//       An admin can also assign a plan directly. (C10)
-//   P6. Renewing the SAME plan early adds on: the new period starts when the
-//       current one ends, so no paid days are lost. Switching to a DIFFERENT
-//       plan takes effect at once and ends the current one, with no refund
-//       or proration. (C9)
-//   P7. There is no "standard" plan row. A seller without a subscription is
-//       simply on the default rate. (C11)
-//   P8. Subscriptions cannot be paid from the wallet balance. (C12)
-//   P9. The default commission rate has no built-in value. Until an admin
-//       sets one, orders cannot be created.
+// Decided 2026-10-07 (README §10, §20 C3, C5–C7, C9–C12):
+//   1. Each plan has its own length in days, set by the admin.
+//   2. A subscription keeps the price and rate it was requested with.
+//   3. No automatic renewal.
+//   4. No grace period: when a subscription ends, the default rate applies.
+//      Selling is never blocked for lack of a plan.
+//   5. Until online payment exists, a seller requests a plan and an admin
+//      activates it after checking the payment; an admin can also assign one.
+//   6. Renewing the SAME plan early starts when the current one ends.
+//      Switching to a DIFFERENT plan takes effect at once, with no refund.
+//   7. There is no "standard" plan row: no subscription = the default rate.
+//   8. Subscriptions cannot be paid from the wallet.
+//   9. The default rate has no built-in value; an admin must set it.
 
 // The catalogue of plans, managed by admins.
 // A plan that any subscription has used is retired, never deleted.
@@ -510,8 +505,9 @@ Table seller_plans {
 // database guarantees it (an exclusion constraint on the periods), it is not
 // just checked in code.
 //
-// The plan_* columns are a SNAPSHOT of the plan when the subscription was
-// requested (PROPOSED P2). They are what applies, whatever the plan says now.
+// plan_name, price, currency, duration_days, and commission_rate are a
+// SNAPSHOT of the plan when the subscription was requested. They are what
+// applies, whatever the plan says now.
 Table seller_subscriptions {
   id uuid [primary key]
   seller_id uuid [not null, ref: > sellers.id, note: 'RESTRICT delete; indexed']
@@ -535,7 +531,8 @@ Table seller_subscriptions {
   payment_reference varchar(100) [note: 'what the admin checked before activating: a MoMo or bank reference. Replaced by a link to the payment record when the payments feature exists']
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
-  // Exclusion: no two ACTIVE subscriptions of one seller with overlapping [starts_at, ends_at)
+  // Exclusion (gist, needs btree_gist): no two ACTIVE subscriptions of one seller
+  //   with overlapping [starts_at, ends_at)
   // Unique (seller_id) where status = 'pending' — one open request per seller
   // Check: status in its list; ends_at > starts_at; active rows have both dates
   // Index (seller_id, status)

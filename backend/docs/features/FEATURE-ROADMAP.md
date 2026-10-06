@@ -22,4 +22,4 @@ The module build order and its reasoning are in [`README.md` §17](../../../READ
 | 014 | Notifications | `PLANNED` | – | Email sending exists (`infrastructure/notifications`); background delivery belongs here. |
 | 015 | Admin | `PLANNED` | – | |
 | 016 | Reporting | `PLANNED` | – | |
-| 017 | Seller plans, subscriptions, and commission | `DESIGNING` | – | README build-order step 6: must exist before orders. Tables drafted in `database_schema.dbml`, awaiting review of nine proposals. Not in the original numbered list, so it takes the next free number. |
+| 017 | Seller plans, subscriptions, and commission | `TESTING` | [017_seller_plans.md](017_seller_plans.md) | README build-order step 6: must exist before orders. Written and walked through against a real database; tests not yet run. Payment for subscriptions waits for 011. Not in the original numbered list, so it took the next free number. |
