@@ -107,6 +107,12 @@ class SellerService:
             raise SellerNotActiveError()
         return seller
 
+    async def find_seller_id(self, account_id: uuid.UUID) -> uuid.UUID | None:
+        """The id of the account's seller record in ANY status, or None. For
+        rules such as "you cannot buy from your own shop"."""
+        seller = await self._repository.get_by_account(account_id)
+        return seller.id if seller is not None else None
+
     async def get_open_shop(self, seller_id: uuid.UUID) -> Seller:
         """A seller whose shop buyers may see. Any other seller looks exactly
         like one that doesn't exist, so shop pages reveal nothing about

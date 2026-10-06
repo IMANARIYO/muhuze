@@ -8,9 +8,12 @@ startup (app/bootstrap.py).
 from app.core.permissions import PermissionDefinition
 from app.modules.authorization.authorization_permissions import AUTHORIZATION_PERMISSIONS
 from app.modules.categories.category_permissions import CATEGORY_PERMISSIONS
+from app.modules.orders.order_permissions import ORDER_PERMISSIONS
+from app.modules.payments.payment_permissions import PAYMENT_PERMISSIONS
 from app.modules.products.product_permissions import PRODUCT_PERMISSIONS
 from app.modules.seller_plans.seller_plan_permissions import SELLER_PLAN_PERMISSIONS
 from app.modules.sellers.seller_permissions import SELLER_PERMISSIONS
+from app.modules.wallets.wallet_permissions import WALLET_PERMISSIONS
 
 ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *AUTHORIZATION_PERMISSIONS,
@@ -18,6 +21,9 @@ ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *CATEGORY_PERMISSIONS,
     *PRODUCT_PERMISSIONS,
     *SELLER_PLAN_PERMISSIONS,
+    *ORDER_PERMISSIONS,
+    *PAYMENT_PERMISSIONS,
+    *WALLET_PERMISSIONS,
 )
 
 _codes = [permission.code for permission in ALL_PERMISSIONS]
