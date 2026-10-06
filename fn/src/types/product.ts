@@ -30,4 +30,6 @@ export interface ProductFilters {
   type?: ProductType
   q?: string
   location?: string
+  /** Shop name: only this seller's listings. */
+  seller?: string
 }

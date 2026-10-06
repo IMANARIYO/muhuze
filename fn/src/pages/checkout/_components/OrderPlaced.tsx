@@ -6,9 +6,9 @@ import type { DeliveryDetails, Order } from '@/types/order'
 
 export function OrderPlaced({ order, details }: { order: Order; details: DeliveryDetails }) {
   const steps = [
-    <>Send <strong>{formatPrice(order.total)}</strong> from <strong>{details.paymentPhone}</strong>. Payment happens outside Muhuze.</>,
-    <>We match the payment to order <strong>{order.reference}</strong> using that number.</>,
-    <>The seller calls <strong>{details.phone}</strong> and delivers to {details.cell}, {details.sector}, {details.district}.</>,
+    <>Send <strong>{formatPrice(order.total)}</strong> from <strong>{details.paymentPhone}</strong> to the Muhuze account. Payment happens outside the app.</>,
+    <>Muhuze matches the payment to order <strong>{order.reference}</strong> using that number and approves it.</>,
+    <>The seller then receives your order, calls <strong>{details.phone}</strong> and delivers to {details.cell}, {details.sector}, {details.district}.</>,
   ]
 
   return (

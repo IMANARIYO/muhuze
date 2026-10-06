@@ -2,10 +2,13 @@ import { ArrowRight, CreditCard, Package, Users, Wallet } from 'lucide-react'
 import { Link } from 'react-router'
 import { useSession } from '@/hooks/use-session'
 import { formatCount, formatDate, formatPrice } from '@/lib/format'
+import { salesOf, useOrders } from '@/services/orders.demo'
 import { cn } from '@/lib/utils'
 import { PageHeader } from './_components/PageHeader'
 import { RevenueChart } from './_components/RevenueChart'
+import { SellerOverview } from './_components/SellerOverview'
 import { StatCard } from './_components/StatCard'
+import { useRates } from './_data'
 import { useListings } from './products/_data'
 import { isPaid, useSubscriptions } from './subscriptions/_data'
 import { useUsers } from './users/_data'
@@ -15,19 +18,37 @@ const panel = 'rounded-2xl border bg-card p-5'
 const panelLink = 'flex items-center gap-1 text-sm font-medium text-primary hover:underline'
 
 export default function DashboardHome() {
-  const { user } = useSession()
+  const { user, can } = useSession()
+  const { items: orders } = useOrders()
+  const { items: [rates] } = useRates()
   const { items: listings } = useListings()
   const { items: transactions } = useTransactions()
   const { items: subscriptions } = useSubscriptions()
   const { items: users } = useUsers()
 
+  if (!user) return null
+  // Without `order.manage` the user runs a shop, not the platform.
+  if (!can('order.manage')) {
+    return (
+      <SellerOverview
+        name={user.name}
+        sales={salesOf(orders, user.shop, rates.commission)}
+        listings={listings.filter((row) => row.seller === user.shop)}
+      />
+    )
+  }
+
+  const waiting = orders.filter((row) => !row.approved).length
   const balance = transactions.filter((row) => !row.pending).reduce((total, row) => total + row.amount, 0)
   const required = subscriptions.filter((row) => row.required)
   const top = listings.toSorted((a, b) => b.views - a.views).slice(0, 5)
 
   return (
     <>
-      <PageHeader title={`Welcome back, ${user?.name}`} description="Here is what is happening on Muhuze today." />
+      <PageHeader
+        title={`Welcome back, ${user.name}`}
+        description={waiting ? `${waiting} ${waiting === 1 ? 'order is' : 'orders are'} waiting for you to confirm payment.` : 'Here is what is happening on Muhuze today.'}
+      />
       <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Wallet balance" value={formatPrice(balance)} hint="Confirmed earnings" icon={Wallet} />
         <StatCard label="Live listings" value={String(listings.filter((row) => row.active).length)} hint={`${listings.length} in total`} icon={Package} />

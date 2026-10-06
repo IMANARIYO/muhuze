@@ -8,15 +8,17 @@ import type { User } from '@/types/user'
 import { features, links } from './nav'
 import { ProfileMenu } from './ProfileMenu'
 import { SearchBar } from './SearchBar'
+import { ShopsMenu } from './ShopsMenu'
 
 interface HeaderProps {
+  shops: string[]
   user?: User
   showDashboard: boolean
   wishlistCount: number
   cartCount: number
 }
 
-export function Header({ user, showDashboard, wishlistCount, cartCount }: HeaderProps) {
+export function Header({ shops, user, showDashboard, wishlistCount, cartCount }: HeaderProps) {
   const counters = [
     { to: '/wishlist', label: 'Wishlist', icon: Heart, count: wishlistCount },
     { to: '/cart', label: 'Cart', icon: ShoppingCart, count: cartCount },
@@ -55,6 +57,7 @@ export function Header({ user, showDashboard, wishlistCount, cartCount }: Header
               {link.label}
             </NavLink>
           ))}
+          {shops.length > 0 && <ShopsMenu shops={shops} />}
         </nav>
         <ul className="ml-auto flex gap-5 pl-4">
           {features.map(({ icon: Icon, title, text }) => (

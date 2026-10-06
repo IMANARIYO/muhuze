@@ -3,9 +3,9 @@ import type { Product, ProductFilters } from '@/types/product'
 
 const demo = async () => (await import('./products.demo')).demoProducts
 
-export async function getProducts({ type, q, location }: ProductFilters = {}): Promise<Product[]> {
+export async function getProducts({ type, q, location, seller }: ProductFilters = {}): Promise<Product[]> {
   if (API_URL) {
-    const params = new URLSearchParams({ ...(type && { type }), ...(q && { q }), ...(location && { location }) })
+    const params = new URLSearchParams({ ...(type && { type }), ...(q && { q }), ...(location && { location }), ...(seller && { seller }) })
     return api<Product[]>(`/products?${params}`)
   }
   const term = q?.toLowerCase() ?? ''
@@ -13,8 +13,15 @@ export async function getProducts({ type, q, location }: ProductFilters = {}): P
   return (await demo()).filter(
     (p) => (!type || p.type === type)
       && `${p.title} ${p.category}`.toLowerCase().includes(term)
-      && p.location.toLowerCase().includes(place),
+      && p.location.toLowerCase().includes(place)
+      && (!seller || p.seller.name === seller),
   )
+}
+
+/** Names of the shops that have listings, for the header filter. */
+export async function getShops(): Promise<string[]> {
+  if (API_URL) return api<string[]>('/shops')
+  return [...new Set((await demo()).map((p) => p.seller.name))].sort()
 }
 
 export async function getProduct(id: number): Promise<Product> {

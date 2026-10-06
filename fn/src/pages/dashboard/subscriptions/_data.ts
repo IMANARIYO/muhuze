@@ -16,6 +16,8 @@ interface SellerSubscription {
   required: boolean
   plan: string | null
   paidUntil: string | null
+  /** A plan the seller asked for and says they paid; cleared when an admin records the payment. */
+  requested?: { plan: string; paymentPhone: string }
 }
 
 export type StoredPlan = Stored<Plan>
@@ -35,7 +37,7 @@ export const useSubscriptions = createStore<SellerSubscription>([
   { seller: 'Fresh Cuts', sells: 'service', required: true, plan: null, paidUntil: null },
   { seller: 'Chef Aline', sells: 'service', required: true, plan: 'Weekly', paidUntil: isoDate(3) },
   { seller: 'CareerLift', sells: 'service', required: false, plan: null, paidUntil: null },
-  { seller: 'Kigali Mobile', sells: 'sale', required: false, plan: null, paidUntil: null },
+  { seller: 'Kigali Mobile', sells: 'sale', required: true, plan: null, paidUntil: null },
   { seller: 'TechPoint', sells: 'sale', required: true, plan: 'Monthly', paidUntil: isoDate(21) },
   { seller: 'SoundHub', sells: 'sale', required: false, plan: null, paidUntil: null },
 ])

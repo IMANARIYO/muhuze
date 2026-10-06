@@ -20,9 +20,11 @@ export function createStore<T>(initial: T[]) {
     remove: (id: number) => set(items.filter((i) => i.id !== id)),
   }
 
-  return function useStore() {
+  function useStore() {
     return { items: useSyncExternalStore(subscribe, () => items), ...actions }
   }
+  // The actions are also reachable outside React, e.g. from a demo service.
+  return Object.assign(useStore, actions)
 }
 
 export type Stored<T> = T & { id: number }

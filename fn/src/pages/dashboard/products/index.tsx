@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { useSession } from '@/hooks/use-session'
 import { formatCount, formatPrice, typeLabels } from '@/lib/format'
 import type { ProductType } from '@/types/product'
 import { DataTable, type Column } from '../_components/DataTable'
@@ -14,7 +15,10 @@ import { ListingForm } from './_components/ListingForm'
 import { useListings, type StoredListing } from './_data'
 
 export default function DashboardProducts() {
+  const { user, can } = useSession()
   const { items, update, remove } = useListings()
+  // Without `product.manage`, a seller only works on their own shop's listings.
+  const shop = can('product.manage') ? undefined : user?.shop
   const [type, setType] = useState<ProductType>()
   const [target, setTarget] = useState<StoredListing | 'new' | null>(null)
 
@@ -75,16 +79,16 @@ export default function DashboardProducts() {
 
   return (
     <>
-      <PageHeader title="Products" description="Every sale, rental and service listed on the marketplace.">
+      <PageHeader title="Products" description={shop ? `Everything ${shop} lists on the marketplace.` : 'Every sale, rental and service listed on the marketplace.'}>
         <Button onClick={() => setTarget('new')}><Plus /> Add listing</Button>
       </PageHeader>
       <DataTable
-        rows={items.filter((row) => !type || row.type === type)}
+        rows={items.filter((row) => (!shop || row.seller === shop) && (!type || row.type === type))}
         columns={columns}
         search={(row) => `${row.title} ${row.category} ${row.seller}`}
         toolbar={<TypeTabs value={type} onChange={setType} />}
       />
-      <ListingForm target={target} onClose={() => setTarget(null)} />
+      <ListingForm target={target} shop={shop} onClose={() => setTarget(null)} />
     </>
   )
 }

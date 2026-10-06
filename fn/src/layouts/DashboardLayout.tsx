@@ -12,13 +12,13 @@ export default function DashboardLayout() {
 
   if (isPending) return null
   if (!user || !can('dashboard.view')) return <Navigate to="/" replace />
-  if (page && !can(page.permission)) return <Navigate to="/dashboard" replace />
+  if (page && !page.permissions.some(can)) return <Navigate to="/dashboard" replace />
 
   return (
     <SidebarProvider>
       <AppSidebar user={user} />
       <SidebarInset className="min-w-0 bg-muted/40">
-        <Topbar title={page?.label ?? 'Dashboard'} />
+        <Topbar title={page?.label ?? 'Dashboard'} role={user.role} />
         <main key={pathname} className="flex flex-1 animate-rise flex-col gap-6 p-4 md:p-6">
           <Outlet />
         </main>

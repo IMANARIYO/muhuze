@@ -5,8 +5,9 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Notifications } from './Notifications'
+import { RoleSwitch } from './RoleSwitch'
 
-export function Topbar({ title }: { title: string }) {
+export function Topbar({ title, role }: { title: string; role: string }) {
   const { resolvedTheme, setTheme } = useTheme()
 
   return (
@@ -15,6 +16,7 @@ export function Topbar({ title }: { title: string }) {
       <Separator orientation="vertical" className="my-auto h-5" />
       <p className="font-heading font-semibold">{title}</p>
       <div className="ml-auto flex items-center gap-1">
+        <RoleSwitch role={role} />
         <Link to="/" className={buttonVariants({ variant: 'outline' })}>
           <Store /> <span className="hidden sm:inline">View store</span>
         </Link>

@@ -29,6 +29,22 @@ Muhuze is a **social marketplace**: a platform where many people meet around pro
 
 There is exactly one dashboard and one sidebar in the codebase — not one per role.
 
+### Platform scope and own scope
+
+Two kinds of permission decide what a dashboard user sees:
+
+- `*.manage` / `wallet.view` — the whole platform (admin): every listing, every order, plans and rates, the platform wallet, users and roles.
+- `*.own` — only what belongs to the user's shop (seller): `product.own`, `order.own`, `subscription.own`, `wallet.own`.
+
+A sidebar link lists the permissions that open it (`permissions: ['product.manage', 'product.own']`). Pages shared by both scopes (Overview, Products, Orders) check the platform permission and otherwise narrow to `user.shop`.
+
+### Order flow
+
+1. A buyer checks out and gets an order reference. Nothing is paid in the app.
+2. The buyer sends the money to the Muhuze account, outside the app, from the number they gave.
+3. An admin sees every order and marks it **Payment received** (approved).
+4. Only then do the sellers of the ordered items see the order, and its amount (minus commission on sale products) counts in their wallet.
+
 ---
 
 ## 3. Features
@@ -197,7 +213,7 @@ To be answered before the related feature is built:
 
 1. **Referrer earnings** — only admin and sellers have wallets, but any user (including buyers) can earn referral commission. Where is a buyer's commission recorded — do all users get a wallet, or a separate "earnings" balance?
 2. **Referral commission source** — is it taken from the platform's share, or added on top?
-3. **Buying a sale product** — is there an in-app order/checkout flow, or does the buyer contact the seller and the seller records the sale?
+3. **Muhuze payment account** — which mobile-money number do buyers and subscribing sellers send money to? It is not shown anywhere yet.
 4. **Backend** — base URL, authentication method (JWT / cookie), and the predefined permission list.
 5. **Languages** — English only, or also Kinyarwanda / French?
 
@@ -219,25 +235,31 @@ To be answered before the related feature is built:
 - [x] `useSession` hook with `can(permission)`; permission-driven sidebar and topbar
 - [x] Dashboard shell: grouped sidebar with user menu, topbar with dark-mode toggle and notifications, per-page permission guard
 - [x] Dashboard pages on demo data: Overview (stats, revenue chart), Products, Subscriptions (rates, plans, sellers), Referrals, Wallet, Users, Roles & permissions
+- [x] Orders: admin sees all and approves payment; sellers see their items from approved orders
+- [x] Seller dashboard: overview with earnings chart, own products (add, edit, delete), My subscription (plans and subscribe request), My wallet (balance from approved orders)
+- [x] Storefront seller collection: `/products?seller=`, linked from the seller card on a product page and from the "Shops" menu in the header
 - [x] Dashboard building blocks in `pages/dashboard/_components`: `DataTable`, `FormDialog`, `RowActions`, `StatCard`, `StatusBadge`, `PageHeader`
 - [x] Marketplace header: search, wishlist count, type links, trust highlights, profile menu (email, referral link, theme, dashboard)
 - [x] Footer with brand, the same links as the header, and social links
-- [x] Home page: animated 3D hero, type banners, trending grid with tabs, highlights, referral banner
+- [x] Home page: animated 3D hero, tall category picture cards, trending panels, referral banner
 - [x] Products: browse page (search + type filter) and detail page with locked seller contact
 - [x] Hero: location search (`/products?location=`), statistics that count up in three seconds
-- [x] Cart (saved in the browser): buy button on every card and on the detail page, header cart icon, `/cart` page
+- [x] Cart (saved in the browser): buy button on the detail page, header cart icon, `/cart` page
 - [x] Checkout (`/checkout`): receiver, delivery address (province, district, sector, cell) and the number the buyer pays from; confirmation with an order reference
-- [x] Wishlist (saved in the browser), view and usage counters on cards
+- [x] Route error screen (`pages/error.tsx`): reloads once when a page file is out of date, otherwise offers a reload
+- [x] Wishlist (saved in the browser), view and usage counters on the detail page
 - [x] Animation system in `src/index.css`: `animate-float`, `animate-blob`, `animate-rise`, `reveal` (scroll), `stagger`
 
 ### Temporary — remove when the backend is connected
-- `services/auth.ts` returns a demo admin while `VITE_API_URL` is not set.
+- `services/auth.ts` returns a demo admin or a demo seller while `VITE_API_URL` is not set; the Admin / Seller switch in the dashboard topbar (`RoleSwitch`) swaps them and disappears once the API is connected.
 - Permission names (`dashboard.view`, `product.manage`…) and the `/auth/me` endpoint are placeholders until the backend list is known.
 - Dashboard pages keep their data in memory through `lib/demo-store.ts` (`_data.ts` files); changes are lost on reload. Replace each store with API queries and mutations.
 - Dashboard listings are not linked to the storefront listings yet.
+- The header "Shops" list comes from the demo listings; `GET /shops` is a placeholder endpoint.
 - `services/products.demo.ts` supplies demo listings (Unsplash photos) while `VITE_API_URL` is not set.
 - The wishlist and the cart are stored in `localStorage` (`lib/id-store.ts`) until backend endpoints exist.
-- `services/orders.ts` returns a demo reference and total while `VITE_API_URL` is not set: orders are not saved anywhere and `POST /orders` is a placeholder endpoint.
+- `services/orders.ts` adds checkout orders to the in-memory list in `services/orders.demo.ts` while `VITE_API_URL` is not set (lost on reload); `POST /orders` is a placeholder endpoint. Dashboard pages read that list directly.
+- A seller is matched to listings, orders and subscriptions by shop name (`user.shop`); the backend should scope these by the signed-in user instead.
 - Listing locations are demo towns; the location search matches the typed text, not real distance.
 - Footer social links point to `#` until the real Muhuze accounts are known.
 - The referral code (`DEMO2026`) comes from the demo user; the `/r/:code` landing route does not exist yet.
@@ -246,10 +268,9 @@ To be answered before the related feature is built:
 ### Next
 - [ ] Auth pages (login, register) once the backend auth method is known
 - [ ] Connect dashboard pages to the backend, one resource at a time
-- [ ] Seller view of the dashboard (own listings, own wallet, own subscription)
+- [ ] Paying sellers out (settlements against a seller wallet)
 
 ### Later
-- [ ] Order / contact flow for buying, renting and booking
 - [ ] Referral registration through a shared link
 
 ### Change log
@@ -262,3 +283,5 @@ To be answered before the related feature is built:
 | 2026-10-05 | Header and footer reworked: highlights moved into the header, profile menu, social links; rule 20 added |
 | 2026-10-05 | Hero location search and count-up statistics; cart with buy buttons, header icon and cart page |
 | 2026-10-05 | Checkout with delivery details; payment happens outside the app |
+| 2026-10-06 | Listings shown as panels of four pictures (`ProductGrid`); category picture cards on the home page; no zoom on product pictures |
+| 2026-10-06 | Admin and seller dashboards: platform/own permissions, orders with admin approval, seller overview, subscription, wallet and storefront collection |

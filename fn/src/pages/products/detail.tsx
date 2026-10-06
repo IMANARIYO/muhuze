@@ -32,8 +32,8 @@ export default function ProductDetail() {
 
   return (
     <main className="mx-auto grid w-full max-w-6xl flex-1 gap-8 px-4 py-8 md:grid-cols-2">
-      <div className="group relative animate-rise self-start overflow-hidden rounded-3xl border bg-muted">
-        <img src={product.image} alt={product.title} width={640} height={640} className="aspect-square w-full object-cover transition duration-700 group-hover:scale-105" />
+      <div className="relative animate-rise self-start overflow-hidden rounded-3xl border bg-muted">
+        <img src={product.image} alt={product.title} width={640} height={640} className="aspect-square w-full object-cover" />
         <WishlistButton id={product.id} className="absolute top-4 right-4 size-11" />
       </div>
       <div className="flex animate-rise flex-col gap-5 [animation-delay:120ms]">

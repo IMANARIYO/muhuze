@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { phoneField } from '@/lib/phone'
 import type { DeliveryDetails } from '@/types/order'
-import { phoneField, provinces } from '../_data'
+import { provinces } from '../_data'
 
 interface Props {
   /** Known when the buyer is signed in. */
