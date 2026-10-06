@@ -1,0 +1,7 @@
+"""Imports every module's models so `Base.metadata` is complete.
+
+Alembic's `migrations/env.py` imports this module. Add a line here when a
+feature gets its first `<feature>_model.py`.
+"""
+
+from app.modules.auth import auth_model  # noqa: F401

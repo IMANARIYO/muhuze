@@ -4,7 +4,6 @@ import sys
 
 import pytest
 
-from app.config.settings import Settings
 from app.core.logging import (
     REDACTED,
     JSONFormatter,
@@ -117,28 +116,28 @@ def _our_handlers() -> list[logging.Handler]:
     return [h for h in logging.getLogger().handlers if getattr(h, "_muhuze_handler", False)]
 
 
-def test_configure_logging_is_idempotent_and_keeps_foreign_handlers() -> None:
+def test_configure_logging_is_idempotent_and_keeps_foreign_handlers(make_settings) -> None:
     root = logging.getLogger()
     foreign = logging.NullHandler()
     root.addHandler(foreign)
     try:
-        configure_logging(Settings(environment="test", _env_file=None))
-        configure_logging(Settings(environment="test", _env_file=None))
+        configure_logging(make_settings())
+        configure_logging(make_settings())
         assert len(_our_handlers()) == 1
         assert foreign in root.handlers
     finally:
         root.removeHandler(foreign)
 
 
-def test_configure_logging_uses_json_in_production() -> None:
-    configure_logging(Settings(environment="production", _env_file=None))
+def test_configure_logging_uses_json_in_production(make_settings) -> None:
+    configure_logging(make_settings(environment="production"))
     try:
         (handler,) = _our_handlers()
         assert isinstance(handler.formatter, JSONFormatter)
         assert logging.getLogger().level == logging.INFO
         assert logging.getLogger("uvicorn.access").disabled
     finally:
-        configure_logging(Settings(environment="test", _env_file=None))
+        configure_logging(make_settings())
 
 
 @pytest.mark.parametrize(
@@ -150,18 +149,18 @@ def test_configure_logging_uses_json_in_production() -> None:
         ("production", "INFO", "json"),
     ],
 )
-def test_log_defaults_follow_environment(environment: str, level: str, fmt: str) -> None:
-    settings = Settings(environment=environment, _env_file=None)
+def test_log_defaults_follow_environment(
+    make_settings, environment: str, level: str, fmt: str
+) -> None:
+    settings = make_settings(environment=environment)
     assert settings.effective_log_level == level
     assert settings.effective_log_format == fmt
 
 
-def test_explicit_log_settings_override_defaults_and_empty_means_unset() -> None:
-    settings = Settings(
-        environment="production", log_level="debug", log_format="TEXT", _env_file=None
-    )
+def test_explicit_log_settings_override_defaults_and_empty_means_unset(make_settings) -> None:
+    settings = make_settings(environment="production", log_level="debug", log_format="TEXT")
     assert settings.effective_log_level == "DEBUG"
     assert settings.effective_log_format == "text"
-    unset = Settings(environment="production", log_level="", log_format="", _env_file=None)
+    unset = make_settings(environment="production", log_level="", log_format="")
     assert unset.effective_log_level == "INFO"
     assert unset.effective_log_format == "json"
