@@ -117,7 +117,7 @@ This repository is a **ground-up backend rebuild**.
 | Path | What it is |
 |---|---|
 | `README.md` | This specification. |
-| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, and the `/api/v1` router. **No business modules yet.** |
+| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, and **authentication** (written, awaiting its first test run; see [`backend/docs/features/001_authentication.md`](backend/docs/features/001_authentication.md)). Roles and permissions are next. |
 | `frontend/` | Frontend (Vite + React + TypeScript), currently on demo data. It displays data and requests operations. It never computes or mutates money. Its guide is [`frontend/PROJECT.md`](frontend/PROJECT.md), which defers to this README for business rules. |
 | `old project/` | The original prototype, kept for reference. |
 
@@ -127,8 +127,8 @@ Decisions carried forward from the previous implementation:
 
 - A modular, feature-based layout with layered modules: routes → (optional controller) → service → repository ([§5](#5-architecture)).
 - A standard response envelope, a global exception hierarchy (`AppError`) with handlers, structured logging with per-request correlation IDs, and `/api/v1` router aggregation mounted once from `main.py`. These are now rebuilt, and the envelope changed to `{success, data, message, status_code}` (see [`backend/docs/api/response-format.md`](backend/docs/api/response-format.md)).
-- **Auth:** `Account` (email/phone/password hash/is_active/is_verified), JWT access tokens plus opaque, hashed, revocable refresh tokens that rotate on use, email verification by OTP, and password reset with a single-use token that revokes every session.
-- `Profile` is 1:1 with `Account`, which keeps personal data out of the identity record.
+- **Auth:** `Account` (email/phone/password hash/status/is_verified), JWT access tokens plus opaque, hashed, revocable refresh tokens that rotate on use, email verification by OTP, and password reset with a single-use token that revokes every session. The rebuilt rules are in [§5.4](#54-authorization-and-ownership).
+- **One `accounts` table for every person**, whatever their roles. Basic personal info (name, photo) lives on the account; role-specific data, such as the seller business profile, lives in its own 1:1 table. (The previous implementation kept a separate `Profile` table; that is merged into the account.)
 - **RBAC:** dynamic, admin-manageable roles (seeded `buyer` / `seller` / `admin`, and every account gets `buyer`). Permissions are **code-defined** in each module's `permissions.py` and synced into the database. Effective permissions are role-derived ∪ direct account grants (grant-only, no deny). `require_role` / `require_permission` dependencies are available to every module.
 - **Startup bootstrap** of env-configured admin and test accounts, run idempotently. This answers "how does the first admin get created?"
 - **File storage** (`core/storage.py`) is Cloudinary-backed and module-agnostic, with private/authenticated delivery for sensitive files such as identity documents.
@@ -154,6 +154,7 @@ Decisions carried forward from the previous implementation:
 | Database / driver | PostgreSQL / asyncpg |
 | Migrations | Alembic (async template) |
 | Auth | PyJWT + pwdlib (Argon2) |
+| Email | aiosmtplib (SMTP), behind an internal `EmailSender` interface |
 | Settings | pydantic-settings |
 | Tooling | uv, ruff, pytest, pytest-asyncio, httpx |
 
@@ -169,7 +170,7 @@ backend/
 │   ├── main.py                 # create_app(): logging, exception handlers, middleware, routers
 │   ├── config/                 # settings.py
 │   ├── api/v1/api_v1_routes.py # aggregates every module's routes under /api/v1 (mounted once)
-│   ├── core/                   # logging, request-context middleware, (later) database, security
+│   ├── core/                   # logging, request-context middleware, database, security
 │   ├── domain/                 # pure business rules and internal interfaces
 │   ├── infrastructure/         # adapters for external systems (payments, storage, notifications, redis)
 │   ├── shared/                 # cross-cutting building blocks
@@ -229,10 +230,23 @@ Feature files are always named `<feature>_<responsibility>.py`. Generic names su
 
 The existing RBAC system is the foundation for every marketplace authorization check. Two separate questions are answered for every protected operation:
 
-1. **Permission (RBAC):** may this account perform this *kind* of action? For example, `products.update`. This is checked with `require_permission`.
+1. **Permission (RBAC):** may this account perform this *kind* of action? For example, `product.update`. This is checked with `require_permission`.
 2. **Ownership (service layer):** does this *specific* resource belong to the acting seller or buyer? For example, `product.seller_id == current_seller.id`.
 
-Both must pass. Holding `products.update` never grants the right to update *another seller's* product. Admin access to resources the admin doesn't own is a **separate, explicit permission**, never an implicit bypass of the ownership check. Sensitive financial actions, such as managing MUHUZE payment destinations, manual payment approval, plan and default-rate changes, withdrawal approval, and adjustments, each get their own explicit permission. Seller *status* (active, suspended, …) is a third, operational gate, checked by the service.
+Both must pass. Holding `product.update` never grants the right to update *another seller's* product. Admin access to resources the admin doesn't own is a **separate, explicit permission**, never an implicit bypass of the ownership check. Sensitive financial actions, such as managing MUHUZE payment destinations, manual payment approval, plan and default-rate changes, withdrawal approval, and adjustments, each get their own explicit permission. Seller *status* (active, suspended, …) is a third, operational gate, checked by the service.
+
+**Conventions (decided):** permissions are named `<resource>.<action>` with a **singular** resource (`product.create`, `role.manage`). Clients authenticate with a short-lived JWT **access token** in the `Authorization: Bearer` header, plus an opaque, rotating **refresh token**; cookies are not used.
+
+**Authentication rules (decided):**
+
+- **An account must verify its email before it can log in.** Registration emails a one-time code; login is refused until the code is confirmed.
+- Only an `active` account can log in or use a token. A `suspended` (by an admin) or `deactivated` (by its owner) account is locked out at once.
+- One-time codes expire, work once, and stop working after a limited number of wrong guesses.
+- Each login is a separate **session** that its owner can list and end. A refresh token works once; presenting one that was already exchanged ends every session of the account, because it means the token leaked.
+- Changing the password ends every other session. Resetting a forgotten password ends all of them.
+- Responses never reveal whether an email is registered, except the "already exists" answer at registration.
+
+Lifetimes and limits are configuration (`backend/.env.example`). The full rules, and what is still missing (notably rate limiting), are in [`backend/docs/features/001_authentication.md`](backend/docs/features/001_authentication.md).
 
 ### 5.5 Configuration
 
@@ -284,7 +298,7 @@ The system **MUST NOT** be modelled as `Order → one seller`. It also **MUST NO
 
 | Actor | Represented by | Notes |
 |---|---|---|
-| Buyer | `Account` (+ `Profile`) | Every account can buy. |
+| Buyer | `Account` | Every account can buy. |
 | Seller | `Seller` (1:0..1 with `Account`) | A seller is also an account, and seller status never affects that account's ability to buy. |
 | Admin | `Account` with admin role/permissions | Platform operations, reviews, configuration. |
 | Payment provider | External system (MoMo/bank account in Phase 1, gateway in Phase 2) | Receives the buyer's money into a MUHUZE-controlled destination. In Phase 2 it talks to MUHUZE through an adapter. It is never trusted without verification ([§12](#12-payments-and-gateway-integration)). |
@@ -1067,7 +1081,7 @@ Refund responsibility (`R1`), partial refunds (`R2`), refunds after funds have b
 A seller can request a withdrawal **from their available balance**, subject to:
 
 - sufficient **available** balance (never pending);
-- **seller verification** requirements ([§15](#15-seller-verification-gates-withdrawals));
+- an **admin-approved seller** ([§15](#15-seller-verification-gates-withdrawals));
 - withdrawal rules, **fees**, and **minimum/maximum limits** (`W3`–`W5`);
 - a valid **seller payout destination** (below);
 - administrative or automated review requirements (`W6`).
@@ -1119,7 +1133,7 @@ These are **engineering invariants**. Each one is a testable requirement and sho
 16. **Verified payment only.** A payment becomes `Paid` only through the confirmation service, after verification by a gateway or by a permissioned administrator. A frontend claim, an unverified callback, or unchecked buyer evidence never does it.
 17. **Payment integrity.** A paid payment's amount and currency match what the provider actually charged.
 18. **Reproducible totals.** Order totals can be reproduced from persisted snapshots: OrderItems → SellerOrders → Order.
-19. **Withdrawal gate.** No withdrawal is created for a seller whose verification requirements aren't satisfied.
+19. **Seller approval gate.** Only an admin-approved seller can list products or sell, and no withdrawal is created for a seller whose application isn't approved.
 20. **Exact arithmetic.** Money uses decimal arithmetic with an explicit, documented rounding rule. The rule itself is **Open** (`C13`).
 21. **Channel-independent processing.** A manually verified payment and a gateway-confirmed payment produce identical downstream records (SellerOrder activation, revenue, earnings, wallet transactions).
 22. **Destination history.** A payment keeps the destination details it was actually paid to, even after the destination changes or is deactivated. A withdrawal keeps its payout destination in the same way. Used destinations are never deleted.
@@ -1128,21 +1142,22 @@ These are **engineering invariants**. Each one is a testable requirement and sho
 
 ## 15. Seller Verification Gates Withdrawals
 
-This business rule is confirmed. It was proven in the earlier prototype:
+**Decided 2026-10-05 (`S1`): a seller is verified and approved by an admin *before* selling.** This replaces the earlier "sell first, verify before withdrawing" rule.
 
 ```
-Register → Sell → Earn → Verify seller → Withdraw
+Register account → Apply as seller (business info + identity documents) → Admin approves → Sell → Earn → Withdraw
 ```
 
-- A seller **may list products and earn money before verification.**
-- A seller **MUST be verified before withdrawing.** A withdrawal request is rejected with `SELLER_VERIFICATION_REQUIRED` unless the seller's verification requirements are satisfied (verification record approved).
-- In the prototype, an unverified seller's withdrawal was correctly blocked. After an admin approved their identity documents, the same seller could withdraw (fee deducted, net payout correct), and the admin moved the withdrawal through `Pending → Processing → Completed`.
+- An account **cannot list products or sell** until its seller application has been **approved by an admin**, who reviews the identity documents.
+- Verification therefore happens **once, at onboarding**. There is no separate "verify later" step before the first withdrawal.
+- A withdrawal still **MUST** come from an approved seller. A request from a seller whose application isn't approved is rejected with `SELLER_VERIFICATION_REQUIRED`. Such a seller normally has no earnings, but the gate stays as a safety check.
+- Seller status never affects the account's ability to log in or buy.
 
-**Verification covers:** identity documents (national ID, passport, or driving license, front and back), personal information, address, phone, and an admin review trail (reviewer, review time, rejection reason), with status `not_submitted → pending → approved | rejected`.
+**The application covers:** business information, identity documents (national ID, passport, or driving license, front and back; stored privately), address, phone, and an admin review trail (reviewer, review time, rejection reason).
 
-**Known gaps to close in the rebuild:** real phone OTP verification (previously stubbed) and an admin verification dashboard (pending sellers, document review, approve/reject with reason).
+**Seller lifecycle** (carried forward from the previous implementation, detailed in the sellers feature doc when it's built): `draft → pending_review → active`, with `rejected` (editable, can resubmit), `suspended` (by an admin), and `deactivated` (by the seller, reversible).
 
-**Reconciliation needed:** in the previous rebuild, seller onboarding *itself* required admin approval of identity documents before a seller became `active`. That conflicts with "sell before verification". How seller onboarding and seller verification relate is **Open** (`S1`), and it must be decided before the sellers module is rebuilt.
+**Still open:** whether a `suspended` or `deactivated` seller can withdraw money already earned (`S2`), plus real phone OTP verification and the admin review dashboard.
 
 ## 16. Analytics
 
@@ -1189,7 +1204,7 @@ The modules are built in **dependency order**. Each step relies on relationships
 | # | Module | Why it comes here |
 |---|---|---|
 | 1 | **Auth / Users** | Identity, sessions, and RBAC. Every later authorization check depends on it. |
-| 2 | **Sellers / Seller verification** | Products, plans, wallets, and withdrawals all hang off `Seller`. The verification model defines the withdrawal gate. |
+| 2 | **Sellers / Seller verification** | Products, plans, wallets, and withdrawals all hang off `Seller`. Admin approval of the seller application gates selling and withdrawing. |
 | 3 | **Categories** | Products must be placed in the shared tree. |
 | 4 | **Product attributes** (AttributeDefinitions) | Product validation needs the category's attribute contract. |
 | 5 | **Products** | Seller-owned products with validated attribute values. Ownership checks are proven here first. |
@@ -1199,7 +1214,7 @@ The modules are built in **dependency order**. Each step relies on relationships
 | 9 | **Payments** | **Phase 1 first:** internal Payment record, status machine, MUHUZE payment destinations, payment instructions, reference/proof submission, permissioned manual approval, and the single idempotent `confirm_payment()`, built behind the channel abstraction. Subscription payments are wired here. **Phase 2** (the first gateway adapter) comes once a provider is chosen (`P1`) and requires no change downstream. |
 | 10 | **Revenue accounting** | Per-SellerOrder revenue and earnings from snapshots, plus subscription revenue. |
 | 11 | **Wallets** | Ledger-backed balances; pending/available settlement. |
-| 12 | **Withdrawals** | Needs wallets plus the verification gate. Includes seller payout destinations. |
+| 12 | **Withdrawals** | Needs wallets plus the seller approval gate. Includes seller payout destinations. |
 | 13 | **Analytics** | Read-only views over settled financial records (seller and platform). |
 | 14 | **Referrals** | Builds on settled revenue rules. |
 | 15 | **Notifications** | Reacts to events from the modules above. |
@@ -1353,8 +1368,8 @@ Withdrawal → snapshot of the payout destination retained
 
 ```
 Seller has only pending funds → withdrawal rejected
-Unverified seller with available funds → rejected (SELLER_VERIFICATION_REQUIRED)
-Verified seller with available funds → accepted → wallet transaction created
+Seller whose application isn't approved → cannot list products; withdrawal rejected (SELLER_VERIFICATION_REQUIRED)
+Approved seller with available funds → accepted → wallet transaction created
 → tracked through its lifecycle; a failed payout returns funds via a compensating transaction
 ```
 
@@ -1402,7 +1417,7 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 - [ ] Seller earnings → wallet: breakdown math, pending → available settlement.
 - [ ] Referral commission testing: eligibility and Level 1/2/3 calculations under controlled transactions.
 - [ ] Refund/reversal testing: compensating records, traceability, no double-crediting.
-- [ ] Withdrawal testing: verification gate, available-only funds, limits, fees, lifecycle, failed-payout reversal.
+- [ ] Withdrawal testing: seller approval gate, available-only funds, limits, fees, lifecycle, failed-payout reversal.
 - [ ] Provider reconciliation: internal Payments match the provider's records.
 - [ ] Analytics: seller and platform figures reconcile with source records.
 - [ ] Security audit: JWT protection, RBAC plus ownership checks, callback authenticity, unauthorized access, token handling on sensitive endpoints.
@@ -1417,7 +1432,17 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 
 ## 20. Open Business Decisions
 
-These are **not decided**. Code MUST NOT settle them implicitly. Record each decision here, and in the owning feature's doc, once it's made. Decisions are grouped and given IDs so the rest of the document can refer to them.
+**Decided** (kept here as a record; the rule itself lives in the section named):
+
+| ID | Decision | Date | Where |
+|---|---|---|---|
+| S1 | Sellers are verified and **approved by an admin before selling**. | 2026-10-05 | [§15](#15-seller-verification-gates-withdrawals) |
+| I1 | Authentication uses a short-lived **Bearer access token** plus a rotating **refresh token** (not cookies). | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
+| I2 | Permissions are named **`<resource>.<action>` with a singular resource**, e.g. `product.create`. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
+| I4 | An account must **verify its email before it can log in**. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
+| I5 | Verification codes and password reset links are sent by **email over SMTP**. No email provider is chosen yet; any SMTP service works. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
+
+The items below are **not decided**. Code MUST NOT settle them implicitly. Record each decision here, and in the owning feature's doc, once it's made. Decisions are grouped and given IDs so the rest of the document can refer to them.
 
 **Commercial: plans and commission**
 
@@ -1535,15 +1560,13 @@ These were described in the frontend project guide before the README became the 
 
 | ID | Decision | Blocks |
 |---|---|---|
-| I1 | **Authentication transport:** HTTP-only cookies (the frontend client currently sends `credentials: 'include'`) or `Authorization: Bearer` tokens (the previous backend)? | auth, frontend API client |
-| I2 | **Permission naming convention:** singular `product.create` (frontend placeholders) or plural `products.create` (earlier README examples)? Pick one and use it everywhere. | auth, every module |
 | I3 | **Machine-readable error codes:** add an `error_code` field to the response envelope (needed for e.g. `SELLER_VERIFICATION_REQUIRED`, [§15](#15-seller-verification-gates-withdrawals)), and/or structured per-field validation errors? See `backend/docs/api/response-format.md`. | all endpoints, frontend forms |
 
 **Sellers, referrals, premium, analytics**
 
 | ID | Decision | Blocks |
 |---|---|---|
-| S1 | **Seller onboarding vs. verification:** can a seller sell before identity review? Which checks gate selling, and which gate withdrawing? | sellers, seller_verification |
+| S2 | Can a `suspended` or `deactivated` seller withdraw earnings they already have? | sellers, withdrawals |
 | F1 | **Referral funding:** is referral commission paid out of MUHUZE's commission? What applies to 0%-plan sellers? Who is eligible? | referrals, revenue |
 | M1 | Scope of **premium services**, and how they relate to seller plans. | premium |
 | A1 | Exact **seller and platform analytics metrics**, their definitions, and reporting periods. | analytics |
@@ -1565,7 +1588,9 @@ These working rules apply to every feature, and to financial features above all:
 ```bash
 cd backend
 uv sync                          # install dependencies
-cp .env.example .env             # adjust ENVIRONMENT / LOG_LEVEL / LOG_FORMAT
+cp .env.example .env             # set DATABASE_URL and JWT_SECRET_KEY (both required);
+                                 # a hosted Postgres URL (e.g. Neon) can be pasted as-is
+uv run alembic upgrade head      # create/update the database tables
 uv run fastapi dev app/main.py   # dev server → http://127.0.0.1:8000/docs
 uv run ruff check .              # lint
 uv run ruff format --check .     # formatting
@@ -1573,7 +1598,7 @@ uv run ruff format --check .     # formatting
 
 From the repository root, `npm run dev:backend` starts the same app with `uvicorn --reload`.
 
-Run the backend test suite with:
+The tests need their own PostgreSQL database, named with a `_test` suffix and set as `TEST_DATABASE_URL` in `backend/.env`. Its schema is dropped and rebuilt on every run. Run the backend test suite with:
 
 ```bash
 cd backend && .venv/Scripts/python -m pytest -q

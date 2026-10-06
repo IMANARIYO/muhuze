@@ -18,7 +18,7 @@ This file is the guide for **frontend** work: the rules every frontend change mu
 These are UI rules. The roles, permissions, and ownership rules themselves are defined by the backend (README §5.4).
 
 - **Roles are dynamic**: an admin can create new roles. **Permissions are a fixed, backend-defined list**; admins only assign them to roles.
-- The UI therefore **checks permissions, never role names**. Write `can('<permission>')`, never `role === 'seller'`. A role created tomorrow must work without a code change. The permission naming convention is still open (README §20, `I2`).
+- The UI therefore **checks permissions, never role names**. Write `can('<permission>')`, never `role === 'seller'`. A role created tomorrow must work without a code change. Permissions are named `<resource>.<action>` with a singular resource, e.g. `product.create` (README §5.4).
 - Hiding a button is never security. The API enforces every permission, and the UI only reflects it.
 
 ### Layout per kind of user
@@ -173,7 +173,7 @@ Fonts and palette are a proposal and can be adjusted before the theme is impleme
 
 ## 8. Open questions
 
-Business questions (referrer earnings, referral funding, buying flow, languages, authentication method, permission list) have moved to README §20 (`X1`–`X7`, `I1`–`I3`, `F1`), so every team works from one list. Add **frontend-only** questions here.
+Business questions (referrer earnings, referral funding, buying flow, languages, authentication method, permission list) have moved to README §20 (`X1`–`X7`, `I3`, `F1`; authentication method and permission naming are already decided there), so every team works from one list. Add **frontend-only** questions here.
 
 ---
 
