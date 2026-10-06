@@ -7,9 +7,11 @@ startup (app/bootstrap.py).
 
 from app.core.permissions import PermissionDefinition
 from app.modules.authorization.authorization_permissions import AUTHORIZATION_PERMISSIONS
+from app.modules.sellers.seller_permissions import SELLER_PERMISSIONS
 
 ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *AUTHORIZATION_PERMISSIONS,
+    *SELLER_PERMISSIONS,
 )
 
 _codes = [permission.code for permission in ALL_PERMISSIONS]

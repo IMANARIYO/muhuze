@@ -6,3 +6,4 @@ feature gets its first `<feature>_model.py`.
 
 from app.modules.auth import auth_model  # noqa: F401
 from app.modules.authorization import authorization_model  # noqa: F401
+from app.modules.sellers import seller_model  # noqa: F401

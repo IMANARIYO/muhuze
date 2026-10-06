@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.modules.auth.auth_routes import auth_router
 from app.modules.authorization.authorization_routes import authorization_router
+from app.modules.sellers.seller_routes import seller_router
 
 API_V1_PREFIX = "/api/v1"
 
@@ -10,3 +11,4 @@ API_V1_PREFIX = "/api/v1"
 api_v1_router = APIRouter(prefix=API_V1_PREFIX)
 api_v1_router.include_router(auth_router)
 api_v1_router.include_router(authorization_router)
+api_v1_router.include_router(seller_router)
