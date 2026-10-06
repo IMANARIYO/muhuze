@@ -224,7 +224,10 @@ async def test_delete_role_takes_its_access_away(
 
 
 async def test_permission_catalog_is_listed_and_filtered(db_client: AsyncClient, admin) -> None:
-    everything = await db_client.get(f"{API}/permissions", headers=admin.headers)
+    # The catalog is longer than one default page.
+    everything = await db_client.get(
+        f"{API}/permissions", params={"page_size": 100}, headers=admin.headers
+    )
     roles_only = await db_client.get(
         f"{API}/permissions", params={"resource": "role"}, headers=admin.headers
     )
