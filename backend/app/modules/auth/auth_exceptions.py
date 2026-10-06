@@ -47,5 +47,9 @@ class IncorrectCurrentPasswordError(BadRequestError):
     message = "Current password is incorrect"
 
 
+class AccountNotFoundError(NotFoundError):
+    message = "Account not found"
+
+
 class SessionNotFoundError(NotFoundError):
     message = "Session not found"

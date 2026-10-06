@@ -30,6 +30,7 @@ from app.infrastructure.notifications.email_sender import EmailDeliveryError, Em
 from app.modules.auth.auth_constants import AccountStatus, VerificationPurpose
 from app.modules.auth.auth_exceptions import (
     AccountNotActiveError,
+    AccountNotFoundError,
     EmailAlreadyRegisteredError,
     EmailNotVerifiedError,
     IncorrectCurrentPasswordError,
@@ -53,6 +54,8 @@ from app.modules.auth.auth_repository import (
     VerificationCodeRepository,
 )
 from app.modules.auth.auth_schema import SessionResponse
+from app.modules.authorization.authorization_constants import SystemRole
+from app.modules.authorization.authorization_service import AuthorizationService
 from app.shared.exceptions.application_exceptions import AuthenticationError
 from app.shared.responses.pagination import Page, PaginationParams
 
@@ -89,11 +92,13 @@ class AuthService:
         settings: Settings,
         password_hasher: PasswordHasher,
         email_sender: EmailSender,
+        authorization: AuthorizationService,
     ) -> None:
         self._session = session
         self._settings = settings
         self._password_hasher = password_hasher
         self._email_sender = email_sender
+        self._authorization = authorization
         self._accounts = AccountRepository(session)
         self._refresh_tokens = RefreshTokenRepository(session)
         self._verification_codes = VerificationCodeRepository(session)
@@ -125,11 +130,53 @@ class AuthService:
                 raise PhoneAlreadyRegisteredError() from exc
             raise EmailAlreadyRegisteredError() from exc
 
+        # Every account can buy (README §6.2).
+        await self._authorization.assign_role(
+            account_id=account.id, role_name=SystemRole.BUYER.value
+        )
         code = await self._issue_verification_code(account)
         await self._session.commit()
         logger.info("account registered", extra={"account_id": str(account.id)})
 
         await self._send_verification_email(account, code)
+        return account
+
+    async def ensure_verified_account(
+        self, *, email: str, password: str, full_name: str
+    ) -> tuple[Account, bool]:
+        """Return the account with this email, creating it already verified
+        if it doesn't exist. Returns `(account, created)`. An existing account
+        is returned untouched: its password is never reset.
+
+        For accounts created by the system itself (the first admin, at
+        startup). Never reachable from the API: it skips email verification.
+        """
+        email = _normalize_email(email)
+        account = await self._accounts.get_by_email(email)
+        if account is not None:
+            return account, False
+
+        now = utc_now()
+        account = Account(
+            email=email,
+            password_hash=await self._password_hasher.hash(password),
+            full_name=full_name,
+            is_verified=True,
+            verified_at=now,
+        )
+        await self._accounts.add(account)
+        await self._authorization.assign_role(
+            account_id=account.id, role_name=SystemRole.BUYER.value
+        )
+        await self._session.commit()
+        logger.info("verified account created", extra={"account_id": str(account.id)})
+        return account, True
+
+    async def get_account(self, account_id: uuid.UUID) -> Account:
+        """For other features that need to check an account exists."""
+        account = await self._accounts.get_by_id(account_id)
+        if account is None:
+            raise AccountNotFoundError()
         return account
 
     async def request_email_verification(self, *, email: str) -> None:

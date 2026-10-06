@@ -1,5 +1,6 @@
 import asyncio
 import os
+import uuid
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from app.config.settings import Settings
+from app.infrastructure.storage.file_storage import StoredFile, StoredImage
 from app.main import create_app
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -163,15 +165,53 @@ def email_outbox() -> RecordingEmailSender:
     return RecordingEmailSender()
 
 
+class FakeFileStorage:
+    """Stands in for private file storage and keeps the files in memory."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self.public_images: dict[str, bytes] = {}
+
+    async def upload_public_image(self, content: bytes, *, folder: str) -> StoredImage:
+        public_id = f"{folder}/{uuid.uuid4().hex}"
+        self.public_images[public_id] = content
+        return StoredImage(public_id=public_id, format="jpg", width=800, height=600)
+
+    async def delete_public_image(self, public_id: str) -> None:
+        self.public_images.pop(public_id, None)
+
+    def public_image_url(self, public_id: str, image_format: str) -> str:
+        return f"https://images.example.test/{public_id}.{image_format}"
+
+    async def upload_private(self, content: bytes, *, folder: str) -> StoredFile:
+        public_id = f"{folder}/{uuid.uuid4().hex}"
+        self.files[public_id] = content
+        return StoredFile(public_id=public_id, resource_type="image", format="bin")
+
+    async def delete(self, file: StoredFile) -> None:
+        self.files.pop(file.public_id, None)
+
+    def private_url(self, file: StoredFile, *, expires_in: int) -> str:
+        return f"https://files.example.test/{file.public_id}?expires_in={expires_in}"
+
+
+@pytest.fixture
+def file_storage() -> FakeFileStorage:
+    return FakeFileStorage()
+
+
 @pytest.fixture
 async def db_client(
     app: FastAPI,
     session_factory: async_sessionmaker[AsyncSession],
     email_outbox: RecordingEmailSender,
+    file_storage: FakeFileStorage,
 ) -> AsyncIterator[AsyncClient]:
-    """An API client whose app uses the test transaction and records emails."""
+    """An API client whose app uses the test transaction, records emails,
+    and keeps uploaded files in memory."""
     app.state.session_factory = session_factory
     app.state.email_sender = email_outbox
+    app.state.file_storage = file_storage
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

@@ -16,6 +16,7 @@ from app.core.database import get_session
 from app.modules.auth.auth_constants import USER_AGENT_MAX_LENGTH
 from app.modules.auth.auth_model import Account
 from app.modules.auth.auth_service import AuthenticatedAccount, AuthService, ClientInfo
+from app.modules.authorization.authorization_service import AuthorizationService
 from app.shared.exceptions.application_exceptions import AuthenticationError
 
 # auto_error=False: a missing header is reported through the standard error
@@ -32,6 +33,7 @@ def get_auth_service(
         settings=state.settings,
         password_hasher=state.password_hasher,
         email_sender=state.email_sender,
+        authorization=AuthorizationService(session),
     )
 
 
