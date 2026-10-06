@@ -3,9 +3,15 @@
 Usage in a route:
 
     @router.get("", response_model=APIResponse[Page[ProductOut]])
-    async def list_products(pagination: Annotated[PaginationParams, Query()]):
+    async def list_products(
+        pagination: Annotated[PaginationParams, Depends()],
+        filters: Annotated[ProductFilters, Depends()],   # when the list has filters
+    ):
         page = await product_service.list_products(pagination)
         return success_response(data=page)
+
+Use `Depends()`, not `Query()`: FastAPI accepts only one `Query()` parameter
+model per endpoint, so pagination could not be combined with filters.
 
 The repository applies `pagination.offset` / `pagination.limit` in SQL and
 returns the matching total; the service builds `Page.build(...)`.

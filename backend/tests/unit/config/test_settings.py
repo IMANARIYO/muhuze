@@ -57,3 +57,14 @@ def test_empty_smtp_values_mean_unset(make_settings) -> None:
     assert settings.smtp_host is None
     assert settings.smtp_username is None
     assert settings.smtp_password is None
+
+
+def test_cloudinary_settings_are_all_or_nothing(make_settings) -> None:
+    assert make_settings().is_file_storage_configured is False
+    with pytest.raises(ValidationError):
+        make_settings(cloudinary_cloud_name="muhuze")
+    configured = make_settings(
+        cloudinary_cloud_name="muhuze", cloudinary_api_key="123", cloudinary_api_secret="shh"
+    )
+    assert configured.is_file_storage_configured is True
+    assert "shh" not in repr(configured)

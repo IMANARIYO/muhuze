@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # Frontend page that receives `?token=...` from the password reset email.
     password_reset_url: str = "http://localhost:5173/reset-password"
 
+    # The first admin account, created at startup if it doesn't exist yet
+    # (app/bootstrap.py). Leave both empty to create none.
+    bootstrap_admin_email: str | None = None
+    bootstrap_admin_password: SecretStr | None = None
+    bootstrap_admin_full_name: str = "MUHUZE Administrator"
+
     # Email (app/infrastructure/notifications). Without SMTP_HOST, emails are
     # logged instead of sent — allowed in development and test only.
     smtp_host: str | None = None
@@ -59,6 +65,13 @@ class Settings(BaseSettings):
     smtp_password: SecretStr | None = None
     smtp_from_email: str | None = None
     smtp_use_tls: bool = True
+
+    # File storage (Cloudinary): where uploaded files such as seller identity
+    # documents are kept. All three come from the Cloudinary dashboard. Empty
+    # means storage is not configured, and uploading is unavailable.
+    cloudinary_cloud_name: str | None = None
+    cloudinary_api_key: str | None = None
+    cloudinary_api_secret: SecretStr | None = None
 
     # An empty value (`LOG_LEVEL=` in .env) means "not set", not an invalid level.
     @field_validator("log_level", mode="before")
@@ -72,7 +85,16 @@ class Settings(BaseSettings):
         return (value.strip().lower() or None) if isinstance(value, str) else value
 
     @field_validator(
-        "smtp_host", "smtp_username", "smtp_password", "smtp_from_email", mode="before"
+        "smtp_host",
+        "smtp_username",
+        "smtp_password",
+        "smtp_from_email",
+        "bootstrap_admin_email",
+        "bootstrap_admin_password",
+        "cloudinary_cloud_name",
+        "cloudinary_api_key",
+        "cloudinary_api_secret",
+        mode="before",
     )
     @classmethod
     def _empty_means_unset(cls, value: object) -> object:
@@ -105,6 +127,39 @@ class Settings(BaseSettings):
         elif self.email_from_address is None:
             raise ValueError("SMTP_FROM_EMAIL (or SMTP_USERNAME) is required when SMTP_HOST is set")
         return self
+
+    @model_validator(mode="after")
+    def _validate_bootstrap_admin(self) -> Self:
+        email, password = self.bootstrap_admin_email, self.bootstrap_admin_password
+        if (email is None) != (password is None):
+            raise ValueError(
+                "BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD must be set together"
+            )
+        if password is not None and len(password.get_secret_value()) < 12:
+            raise ValueError("BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_file_storage(self) -> Self:
+        values = (
+            self.cloudinary_cloud_name,
+            self.cloudinary_api_key,
+            self.cloudinary_api_secret,
+        )
+        if any(value is not None for value in values) and not self.is_file_storage_configured:
+            raise ValueError(
+                "CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET "
+                "must be set together"
+            )
+        return self
+
+    @property
+    def is_file_storage_configured(self) -> bool:
+        return None not in (
+            self.cloudinary_cloud_name,
+            self.cloudinary_api_key,
+            self.cloudinary_api_secret,
+        )
 
     @property
     def is_deployed(self) -> bool:

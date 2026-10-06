@@ -61,3 +61,10 @@ class BusinessRuleError(AppError):
 
     status_code = 422
     message = "Business rule violated"
+
+
+class ServiceUnavailableError(AppError):
+    """Something the request depends on (file storage, …) is not available right now."""
+
+    status_code = 503
+    message = "Service temporarily unavailable"
