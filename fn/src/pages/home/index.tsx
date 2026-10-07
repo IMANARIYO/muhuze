@@ -1,8 +1,7 @@
 import { useProducts } from '@/hooks/use-products'
-import { useSession } from '@/hooks/use-session'
+import { BestSellers } from './_components/BestSellers'
 import { CategoryCards } from './_components/CategoryCards'
 import { Hero } from './_components/Hero'
-import { Highlights } from './_components/Highlights'
 import { Trending } from './_components/Trending'
 
 // One listing per product type for the hero: a phone, a house and a service.
@@ -10,7 +9,6 @@ const heroIds = [1, 7, 10]
 
 export default function Home() {
   const { data: products } = useProducts()
-  const { user } = useSession()
   const featured = heroIds.flatMap((id) => products?.find((p) => p.id === id) ?? [])
 
   return (
@@ -18,7 +16,7 @@ export default function Home() {
       <Hero products={featured} />
       <CategoryCards products={products ?? []} />
       <Trending products={products} />
-      <Highlights referralCode={user?.referralCode} />
+      <BestSellers products={products ?? []} />
     </main>
   )
 }

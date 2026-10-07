@@ -194,7 +194,8 @@ Folders are created **only when the first file that belongs in them is written**
 
 Goal: attractive, professional, modern — it should feel like a trusted marketplace with the liveliness of a social app, and show innovation in both look and behaviour.
 
-- **Fonts:** *Plus Jakarta Sans* for headings (friendly, modern, strong at large sizes) and *Inter* for body and dashboard text (highly readable in dense tables and forms).
+- **Fonts:** *Roboto* for everything (variable font, weights 100–900), with the system font as fallback. Large headings use the light weight (300) with a medium (500) phrase for emphasis; body and navigation use regular (400) at 14px.
+- **Hero:** flat grey background, small uppercase spaced eyebrow, light headline, square dark uppercase button.
 - **Colors** (defined once as theme tokens in `src/index.css`, with light and dark mode):
   - Primary — deep emerald/teal: trust, money, growth.
   - Accent — warm amber: calls to action, deals, highlights.
@@ -229,7 +230,7 @@ To be answered before the related feature is built:
 - [x] Starter template files removed
 - [x] TypeScript `strict` enabled and `@/` path alias added
 - [x] shadcn/ui initialised (Base UI style: use the `render` prop, not `asChild`)
-- [x] Theme tokens in `src/index.css`: emerald primary, amber `highlight`, Inter + Plus Jakarta Sans, light and dark
+- [x] Theme tokens in `src/index.css`: emerald primary, amber `highlight`, Roboto, light and dark
 - [x] Router with lazy routes, `PublicLayout` and `DashboardLayout`
 - [x] API client (`lib/api.ts`) and TanStack Query provider
 - [x] `useSession` hook with `can(permission)`; permission-driven sidebar and topbar
@@ -241,7 +242,7 @@ To be answered before the related feature is built:
 - [x] Dashboard building blocks in `pages/dashboard/_components`: `DataTable`, `FormDialog`, `RowActions`, `StatCard`, `StatusBadge`, `PageHeader`
 - [x] Marketplace header: search, wishlist count, type links, trust highlights, profile menu (email, referral link, theme, dashboard)
 - [x] Footer with brand, the same links as the header, and social links
-- [x] Home page: animated 3D hero, tall category picture cards, trending panels, referral banner
+- [x] Home page: animated 3D hero, tall category picture cards, trending panels, most-sold products carousel
 - [x] Products: browse page (search + type filter) and detail page with locked seller contact
 - [x] Hero: location search (`/products?location=`), statistics that count up in three seconds
 - [x] Cart (saved in the browser): buy button on the detail page, header cart icon, `/cart` page
@@ -283,5 +284,7 @@ To be answered before the related feature is built:
 | 2026-10-05 | Header and footer reworked: highlights moved into the header, profile menu, social links; rule 20 added |
 | 2026-10-05 | Hero location search and count-up statistics; cart with buy buttons, header icon and cart page |
 | 2026-10-05 | Checkout with delivery details; payment happens outside the app |
+| 2026-10-06 | Home referral banner replaced by a carousel of the most sold products |
+| 2026-10-06 | Font changed to Roboto (Inter and Plus Jakarta Sans removed); hero and header restyled to the light editorial look |
 | 2026-10-06 | Listings shown as panels of four pictures (`ProductGrid`); category picture cards on the home page; no zoom on product pictures |
 | 2026-10-06 | Admin and seller dashboards: platform/own permissions, orders with admin approval, seller overview, subscription, wallet and storefront collection |

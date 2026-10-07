@@ -46,7 +46,7 @@ export function Header({ shops, user, showDashboard, wishlistCount, cartCount }:
           {user && <ProfileMenu user={user} showDashboard={showDashboard} />}
         </div>
       </div>
-      <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 pb-2 text-sm font-medium">
+      <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 pb-2 text-sm/[18px]">
         <nav className="flex gap-1">
           {links.map((link) => (
             <NavLink

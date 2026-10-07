@@ -10,7 +10,7 @@ export function LocationSearch() {
   return (
     <form
       role="search"
-      className="mx-auto mt-7 flex max-w-lg items-center rounded-full border bg-card p-1.5 shadow-xl shadow-primary/10 transition focus-within:border-primary md:mx-0"
+      className="mx-auto mt-8 flex max-w-lg items-center border bg-card transition focus-within:border-foreground md:mx-0"
       action={(data) => navigate(`/products?location=${encodeURIComponent(String(data.get('location') ?? '').trim())}`)}
     >
       <Input
@@ -18,10 +18,10 @@ export function LocationSearch() {
         required
         aria-label="Your location"
         placeholder="Where are you?"
-        className="h-12 border-0 bg-transparent px-5 text-base shadow-none focus-visible:ring-0 md:text-base dark:bg-transparent"
+        className="h-13 rounded-none border-0 bg-transparent px-5 text-base shadow-none focus-visible:ring-0 md:text-base dark:bg-transparent"
       />
       <MapPin className="mr-3 size-5 shrink-0 text-muted-foreground" />
-      <Button type="submit" className="h-12 shrink-0 rounded-full px-6 text-xs font-bold tracking-widest uppercase">
+      <Button type="submit" className="h-13 shrink-0 rounded-none bg-foreground px-8 text-sm font-medium tracking-widest text-background uppercase hover:bg-foreground/85">
         Find nearby
       </Button>
     </form>
