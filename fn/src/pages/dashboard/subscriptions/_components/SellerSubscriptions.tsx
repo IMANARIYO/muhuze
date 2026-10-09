@@ -30,6 +30,7 @@ export function SellerSubscriptions() {
     {
       header: 'Status',
       cell: (row) => {
+        if (row.requested) return <StatusBadge tone="warning">{row.requested.plan} requested · pays from {row.requested.paymentPhone}</StatusBadge>
         if (!row.required) return <StatusBadge tone="neutral">Exempt</StatusBadge>
         return isPaid(row)
           ? <StatusBadge tone="success">Active</StatusBadge>
@@ -41,7 +42,7 @@ export function SellerSubscriptions() {
     {
       header: '',
       className: 'text-right',
-      cell: (row) => row.required && (
+      cell: (row) => (row.required || row.requested) && (
         <Button variant="outline" size="sm" onClick={() => setPaying(row)}>
           {isPaid(row) ? 'Renew' : 'Record payment'}
         </Button>
@@ -61,14 +62,14 @@ export function SellerSubscriptions() {
         onSubmit={(data) => {
           const plan = offered.find((item) => item.name === data.get('plan'))
           if (!paying || !plan) return
-          update(paying.id, { plan: plan.name, paidUntil: isoDate(plan.days) })
+          update(paying.id, { plan: plan.name, paidUntil: isoDate(plan.days), requested: undefined })
           toast.success(`${paying.seller} is subscribed until ${formatDate(isoDate(plan.days))}`)
         }}
       >
         <SelectField
           label="Plan"
           name="plan"
-          defaultValue={paying?.plan ?? undefined}
+          defaultValue={paying?.requested?.plan ?? paying?.plan ?? undefined}
           options={offered.map((plan) => ({ value: plan.name, label: `${plan.name} · ${formatPrice(plan.amount)} / ${plan.days} days` }))}
         />
       </FormDialog>

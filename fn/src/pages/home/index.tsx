@@ -1,8 +1,8 @@
 import { useProducts } from '@/hooks/use-products'
+import { BestSellers } from './_components/BestSellers'
+import { CategoryCards } from './_components/CategoryCards'
 import { Hero } from './_components/Hero'
-import { Highlights } from './_components/Highlights'
 import { Trending } from './_components/Trending'
-import { TypeBanners } from './_components/TypeBanners'
 
 // One listing per product type for the hero: a phone, a house and a service.
 const heroIds = [1, 7, 10]
@@ -14,9 +14,9 @@ export default function Home() {
   return (
     <main className="flex-1">
       <Hero products={featured} />
-      <TypeBanners products={products ?? []} />
+      <CategoryCards products={products ?? []} />
       <Trending products={products} />
-      <Highlights />
+      <BestSellers products={products ?? []} />
     </main>
   )
 }

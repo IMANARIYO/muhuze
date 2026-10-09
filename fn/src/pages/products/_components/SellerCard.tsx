@@ -1,5 +1,7 @@
 import { Lock, Phone } from 'lucide-react'
+import { Link } from 'react-router'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { buttonVariants } from '@/components/ui/button'
 import type { Product } from '@/types/product'
 
 export function SellerCard({ seller }: { seller: Product['seller'] }) {
@@ -20,6 +22,9 @@ export function SellerCard({ seller }: { seller: Product['seller'] }) {
           </p>
         )}
       </div>
+      <Link to={`/products?seller=${encodeURIComponent(seller.name)}`} className={buttonVariants({ variant: 'outline', className: 'shrink-0 rounded-full' })}>
+        All listings
+      </Link>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import {
-  CreditCard, LayoutDashboard, Package, Share2, ShieldCheck, Users, Wallet,
+  BadgeCheck, ClipboardList, CreditCard, LayoutDashboard, Package, PiggyBank, Share2, ShieldCheck, Users, Wallet,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -7,31 +7,38 @@ interface NavItem {
   label: string
   to: string
   icon: LucideIcon
-  permission: string
+  /** The link and its page are open to anyone holding at least one of these. */
+  permissions: string[]
 }
 
+// `.manage` permissions cover the whole platform; `.own` ones cover only what belongs to the user.
 export const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Main',
-    items: [{ label: 'Overview', to: '/dashboard', icon: LayoutDashboard, permission: 'dashboard.view' }],
+    items: [{ label: 'Overview', to: '/dashboard', icon: LayoutDashboard, permissions: ['dashboard.view'] }],
   },
   {
     label: 'Marketplace',
     items: [
-      { label: 'Products', to: '/dashboard/products', icon: Package, permission: 'product.manage' },
-      { label: 'Subscriptions', to: '/dashboard/subscriptions', icon: CreditCard, permission: 'subscription.manage' },
-      { label: 'Referrals', to: '/dashboard/referrals', icon: Share2, permission: 'referral.view' },
+      { label: 'Products', to: '/dashboard/products', icon: Package, permissions: ['product.manage', 'product.own'] },
+      { label: 'Orders', to: '/dashboard/orders', icon: ClipboardList, permissions: ['order.manage', 'order.own'] },
+      { label: 'Subscriptions', to: '/dashboard/subscriptions', icon: CreditCard, permissions: ['subscription.manage'] },
+      { label: 'My subscription', to: '/dashboard/subscription', icon: BadgeCheck, permissions: ['subscription.own'] },
+      { label: 'Referrals', to: '/dashboard/referrals', icon: Share2, permissions: ['referral.view'] },
     ],
   },
   {
     label: 'Finance',
-    items: [{ label: 'Wallet', to: '/dashboard/wallet', icon: Wallet, permission: 'wallet.view' }],
+    items: [
+      { label: 'Wallet', to: '/dashboard/wallet', icon: Wallet, permissions: ['wallet.view'] },
+      { label: 'My wallet', to: '/dashboard/earnings', icon: PiggyBank, permissions: ['wallet.own'] },
+    ],
   },
   {
     label: 'Administration',
     items: [
-      { label: 'Users', to: '/dashboard/users', icon: Users, permission: 'user.manage' },
-      { label: 'Roles & permissions', to: '/dashboard/roles', icon: ShieldCheck, permission: 'role.manage' },
+      { label: 'Users', to: '/dashboard/users', icon: Users, permissions: ['user.manage'] },
+      { label: 'Roles & permissions', to: '/dashboard/roles', icon: ShieldCheck, permissions: ['role.manage'] },
     ],
   },
 ]

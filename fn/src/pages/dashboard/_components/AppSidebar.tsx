@@ -20,7 +20,7 @@ export function AppSidebar({ user }: { user: User }) {
       </SidebarHeader>
       <SidebarContent>
         {navGroups.map((group) => {
-          const items = group.items.filter((item) => can(item.permission))
+          const items = group.items.filter((item) => item.permissions.some(can))
           if (!items.length) return null
           return (
             <SidebarGroup key={group.label}>
