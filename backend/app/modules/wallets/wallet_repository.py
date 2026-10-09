@@ -91,21 +91,31 @@ class WalletRepository:
         )
         return found is not None
 
+    async def has_withdrawal_transaction(self, withdrawal_id: uuid.UUID, kind: str) -> bool:
+        found = await self._session.scalar(
+            select(WalletTransaction.id).where(
+                WalletTransaction.withdrawal_id == withdrawal_id,
+                WalletTransaction.kind == kind,
+            )
+        )
+        return found is not None
+
     async def add(self, row: RevenueTransaction | WalletTransaction) -> None:
         self._session.add(row)
         await self._session.flush()
 
     async def list_transactions(
         self, wallet_id: uuid.UUID, pagination: PaginationParams
-    ) -> tuple[list[tuple[WalletTransaction, RevenueTransaction]], int]:
-        """A wallet's movements, newest first, each with the sale behind it."""
+    ) -> tuple[list[tuple[WalletTransaction, RevenueTransaction | None]], int]:
+        """A wallet's movements, newest first, each with the sale behind it
+        (none for a withdrawal movement)."""
         condition = WalletTransaction.wallet_id == wallet_id
         total = await self._session.scalar(
             select(func.count()).select_from(WalletTransaction).where(condition)
         )
         rows = await self._session.execute(
             select(WalletTransaction, RevenueTransaction)
-            .join(
+            .outerjoin(
                 RevenueTransaction,
                 RevenueTransaction.id == WalletTransaction.revenue_transaction_id,
             )

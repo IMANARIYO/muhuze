@@ -1,8 +1,19 @@
-from app.shared.exceptions.application_exceptions import ConflictError, NotFoundError
+from app.shared.exceptions.application_exceptions import (
+    BusinessRuleError,
+    ConflictError,
+    NotFoundError,
+)
 
 
 class WalletNotFoundError(NotFoundError):
     message = "This seller has no wallet"
+
+
+class InsufficientAvailableBalanceError(BusinessRuleError):
+    """The available balance is lower than the amount being taken. Pending
+    funds are never touchable (README §14, invariant 10)."""
+
+    message = "The available balance is not enough for this amount"
 
 
 class NotASellerError(NotFoundError):

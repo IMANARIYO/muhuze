@@ -9,11 +9,14 @@ reaches a seller only through a withdrawal.
     record_earning   a paid sale            + pending
     settle           the buyer has it       pending → available
     reverse          a paid sale undone     − pending
+    reserve          a withdrawal asked     − available
+    release          it did not happen      + available
 
-Those three are the ONLY ways a balance moves. They are called by the orders
-feature, inside ITS transaction (they do not commit), so a payment, the
-order's release, the revenue record, and the wallet credit all succeed or
-fail together. Each is idempotent: called twice, it acts once.
+Those five are the ONLY ways a balance moves. The first three are called by
+the orders feature, the last two by the withdrawals feature, inside ITS
+transaction (they do not commit), so a request, its wallet movement, and its
+status all succeed or fail together. Each is idempotent: called twice, it
+acts once.
 
 Balances are never set directly. Every change writes a WalletTransaction
 holding the change and the balances after it.
@@ -31,6 +34,7 @@ from app.modules.wallets.wallet_exceptions import (
     EarningAlreadySettledError,
     EarningNotRecordedError,
     EarningReversedError,
+    InsufficientAvailableBalanceError,
     WalletNotFoundError,
 )
 from app.modules.wallets.wallet_model import RevenueTransaction, Wallet, WalletTransaction
@@ -90,7 +94,7 @@ class WalletService:
         await self._repository.add(revenue)
         wallet = await self._repository.lock_wallet(seller_id, currency)
         wallet.total_earned += seller_amount
-        await self._move(wallet, revenue, Kind.EARNING, pending=seller_amount)
+        await self._record(wallet, Kind.EARNING, pending=seller_amount, revenue=revenue)
 
     async def settle(self, seller_order_id: uuid.UUID) -> None:
         """The buyer confirmed receipt: the seller's share for this order
@@ -102,12 +106,12 @@ class WalletService:
         if await self._repository.has_transaction(revenue.id, Kind.SETTLEMENT.value):
             return
         wallet = await self._repository.lock_wallet(revenue.seller_id, revenue.currency)
-        await self._move(
+        await self._record(
             wallet,
-            revenue,
             Kind.SETTLEMENT,
             pending=-revenue.seller_amount,
             available=revenue.seller_amount,
+            revenue=revenue,
         )
 
     async def reverse(self, seller_order_id: uuid.UUID) -> None:
@@ -122,7 +126,55 @@ class WalletService:
         wallet = await self._repository.lock_wallet(revenue.seller_id, revenue.currency)
         wallet.total_earned -= revenue.seller_amount
         revenue.reversed_at = utc_now()
-        await self._move(wallet, revenue, Kind.REVERSAL, pending=-revenue.seller_amount)
+        await self._record(wallet, Kind.REVERSAL, pending=-revenue.seller_amount, revenue=revenue)
+
+    # ── Withdrawals: called by the withdrawals feature, inside its
+    # ── transaction (no commit) ─────────────────────────────────────────
+
+    async def reserve_for_withdrawal(
+        self, withdrawal_id: uuid.UUID, seller_id: uuid.UUID, amount: Decimal, currency: str
+    ) -> None:
+        """A withdrawal has been requested: take the amount out of the
+        AVAILABLE balance so the same funds cannot be spent twice. The
+        balance is checked under the wallet lock, so two requests cannot
+        both pass (README §14, invariant 10)."""
+        if await self._repository.has_withdrawal_transaction(withdrawal_id, Kind.WITHDRAWAL.value):
+            return
+        wallet = await self._repository.lock_wallet(seller_id, currency)
+        if wallet.available_balance < amount:
+            raise InsufficientAvailableBalanceError()
+        await self._record(wallet, Kind.WITHDRAWAL, available=-amount, withdrawal_id=withdrawal_id)
+
+    async def release_withdrawal(
+        self, withdrawal_id: uuid.UUID, seller_id: uuid.UUID, amount: Decimal, currency: str
+    ) -> None:
+        """A withdrawal was rejected, failed, or cancelled: give the reserved
+        funds back with a NEW movement. The original reserve is never edited
+        (README §14, invariant 12)."""
+        if await self._repository.has_withdrawal_transaction(
+            withdrawal_id, Kind.WITHDRAWAL_RELEASE.value
+        ):
+            return
+        wallet = await self._repository.lock_wallet(seller_id, currency)
+        await self._record(
+            wallet, Kind.WITHDRAWAL_RELEASE, available=amount, withdrawal_id=withdrawal_id
+        )
+
+    async def complete_withdrawal(
+        self, withdrawal_id: uuid.UUID, seller_id: uuid.UUID, amount: Decimal, currency: str
+    ) -> None:
+        """The payout reached the seller: count it in the running total. The
+        balances do not move — the funds were already reserved. A zero-change
+        movement records it, so a repeated call cannot count it twice."""
+        if await self._repository.has_withdrawal_transaction(
+            withdrawal_id, Kind.WITHDRAWAL_COMPLETE.value
+        ):
+            return
+        wallet = await self._repository.lock_wallet(seller_id, currency)
+        wallet.total_withdrawn += amount
+        await self._record(
+            wallet, Kind.WITHDRAWAL_COMPLETE, available=ZERO, withdrawal_id=withdrawal_id
+        )
 
     # ── Reading ──────────────────────────────────────────────────────────
 
@@ -163,8 +215,9 @@ class WalletService:
                 available_change=movement.available_change,
                 pending_after=movement.pending_after,
                 available_after=movement.available_after,
-                order_id=revenue.order_id,
-                seller_order_id=revenue.seller_order_id,
+                order_id=revenue.order_id if revenue is not None else None,
+                seller_order_id=revenue.seller_order_id if revenue is not None else None,
+                withdrawal_id=movement.withdrawal_id,
                 created_at=movement.created_at,
             )
             for movement, revenue in rows
@@ -212,17 +265,19 @@ class WalletService:
             raise EarningNotRecordedError()
         return revenue
 
-    async def _move(
+    async def _record(
         self,
         wallet: Wallet,
-        revenue: RevenueTransaction,
         kind: WalletTransactionKind,
         *,
         pending: Decimal = ZERO,
         available: Decimal = ZERO,
+        revenue: RevenueTransaction | None = None,
+        withdrawal_id: uuid.UUID | None = None,
     ) -> None:
-        """Apply one movement to a locked wallet and write its record. The
-        ONLY code that changes a balance."""
+        """Write one movement and apply it to the locked wallet. The ONLY
+        code that changes a balance. Exactly one of `revenue` /
+        `withdrawal_id` is set (the database enforces it)."""
         wallet.pending_balance += pending
         wallet.available_balance += available
         await self._repository.add(
@@ -233,7 +288,8 @@ class WalletService:
                 available_change=available,
                 pending_after=wallet.pending_balance,
                 available_after=wallet.available_balance,
-                revenue_transaction_id=revenue.id,
+                revenue_transaction_id=revenue.id if revenue is not None else None,
+                withdrawal_id=withdrawal_id,
             )
         )
         logger.info(
@@ -241,6 +297,10 @@ class WalletService:
             extra={
                 "kind": kind.value,
                 "seller_id": str(wallet.seller_id),
-                "seller_order_id": str(revenue.seller_order_id),
+                **(
+                    {"seller_order_id": str(revenue.seller_order_id)}
+                    if revenue is not None
+                    else {"withdrawal_id": str(withdrawal_id)}
+                ),
             },
         )

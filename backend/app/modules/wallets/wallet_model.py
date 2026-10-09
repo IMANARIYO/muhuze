@@ -86,16 +86,26 @@ class Wallet(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class WalletTransaction(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """One movement in a wallet. Append-only."""
+    """One movement in a wallet. Append-only.
+
+    Exactly one of `revenue_transaction_id` / `withdrawal_id` is set: a sale
+    movement points at its sale, a withdrawal movement at its withdrawal.
+    """
 
     __tablename__ = "wallet_transactions"
     __table_args__ = (
         # A sale is credited once, settled once, and reversed at most once,
         # whatever the application does (README §14, invariant 3).
         UniqueConstraint("revenue_transaction_id", "kind"),
+        # A withdrawal reserves once and releases at most once.
+        UniqueConstraint("withdrawal_id", "kind"),
         CheckConstraint(
             f"kind IN ({', '.join(repr(k.value) for k in WalletTransactionKind)})",
             name="kind_valid",
+        ),
+        CheckConstraint(
+            "(revenue_transaction_id IS NULL) <> (withdrawal_id IS NULL)",
+            name="one_source",
         ),
         Index("ix_wallet_transactions_wallet_id_created_at", "wallet_id", "created_at"),
     )
@@ -106,7 +116,7 @@ class WalletTransaction(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     available_change: Mapped[Decimal] = mapped_column(Money)
     pending_after: Mapped[Decimal] = mapped_column(Money)
     available_after: Mapped[Decimal] = mapped_column(Money)
-    revenue_transaction_id: Mapped[uuid.UUID] = mapped_column(
+    revenue_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
         # Named by hand: the conventional name is over PostgreSQL's
         # 63-character limit.
         ForeignKey(
@@ -114,4 +124,7 @@ class WalletTransaction(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             ondelete="RESTRICT",
             name="fk_wallet_transactions_revenue_transaction_id",
         )
+    )
+    withdrawal_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("withdrawals.id", ondelete="RESTRICT")
     )

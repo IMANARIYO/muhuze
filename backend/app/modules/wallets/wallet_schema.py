@@ -28,8 +28,15 @@ class WalletTransactionResponse(BaseModel):
     available_change: Decimal = Field(description="Signed")
     pending_after: Decimal
     available_after: Decimal
-    order_id: uuid.UUID = Field(description="The order the movement comes from")
-    seller_order_id: uuid.UUID
+    order_id: uuid.UUID | None = Field(
+        default=None, description="The order the movement comes from; none for a withdrawal"
+    )
+    seller_order_id: uuid.UUID | None = Field(
+        default=None, description="None for a withdrawal movement"
+    )
+    withdrawal_id: uuid.UUID | None = Field(
+        default=None, description="The withdrawal the movement comes from; none for a sale"
+    )
     created_at: datetime
 
 

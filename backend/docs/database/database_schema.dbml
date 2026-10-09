@@ -27,6 +27,8 @@
 //   IMPLEMENTED — wallets (revenue_transactions, wallets,
 //     wallet_transactions):
 //     backend/app/modules/wallets/wallet_model.py + migration 0009.
+//   IMPLEMENTED — withdrawals (seller_payout_destinations, withdrawals):
+//     backend/app/modules/withdrawals/withdrawal_model.py + migration 0010.
 // For implemented tables the models are the source of truth and this
 // file must mirror them exactly.
 //
@@ -46,8 +48,8 @@
 // Constraint names follow backend/app/core/database.py NAMING_CONVENTION
 // (pk_<table>, uq_<table>_<column>, fk_<table>_<column>_<referred table>, …).
 //
-// 30 tables so far: authentication + roles & permissions + sellers + categories
-// + products + seller plans + orders + payments + wallets.
+// 32 tables so far: authentication + roles & permissions + sellers + categories
+// + products + seller plans + orders + payments + wallets + withdrawals.
 // There are NO cart tables, by decision (README §20 X8): the cart lives in the
 // frontend, and checkout sends product ids and quantities.
 // There are NO inventory tables, by decision (README §20 K3): MUHUZE does not
@@ -848,18 +850,92 @@ Table wallets {
 //   earning     + pending                      a paid sale
 //   settlement  − pending, + available         the buyer confirmed receipt
 //   reversal    − pending                      a paid sale was undone
-// More kinds (withdrawal, …) join with the features that need them.
+//   withdrawal  − available                    a withdrawal was requested (funds reserved)
+//   withdrawal_release  + available            a withdrawal was rejected, failed, or cancelled
+// Exactly ONE of revenue_transaction_id / withdrawal_id is set: a sale
+// movement points at its sale, a withdrawal movement at its withdrawal.
 Table wallet_transactions {
   id uuid [primary key]
   wallet_id uuid [not null, ref: > wallets.id, note: 'RESTRICT delete; indexed with created_at']
-  kind varchar(20) [not null, note: 'earning | settlement | reversal']
+  kind varchar(20) [not null, note: 'earning | settlement | reversal | withdrawal | withdrawal_release']
   pending_change numeric(14,2) [not null, note: 'signed']
   available_change numeric(14,2) [not null, note: 'signed']
   pending_after numeric(14,2) [not null, note: 'the wallet\'s pending balance once this was applied']
   available_after numeric(14,2) [not null, note: 'the wallet\'s available balance once this was applied']
-  revenue_transaction_id uuid [not null, ref: > revenue_transactions.id, note: 'the sale this movement comes from; RESTRICT delete; FK named fk_wallet_transactions_revenue_transaction_id (the conventional name is too long)']
+  revenue_transaction_id uuid [ref: > revenue_transactions.id, note: 'the sale this movement comes from; NULL for withdrawal movements; RESTRICT delete; FK named fk_wallet_transactions_revenue_transaction_id (the conventional name is too long)']
+  withdrawal_id uuid [ref: > withdrawals.id, note: 'the withdrawal this movement comes from; NULL for sale movements; RESTRICT delete']
   created_at timestamptz [not null]
   // Unique (revenue_transaction_id, kind) — a sale is credited once, settled once,
   //   and reversed at most once, whatever the application does
-  // Check: kind in its list
+  // Unique (withdrawal_id, kind) — a withdrawal reserves once and releases at most once
+  // Check: kind in its list; exactly one of revenue_transaction_id / withdrawal_id
+}
+
+// ── Withdrawals (IMPLEMENTED — migration 0010) ─────────────────────────
+// The only way money leaves MUHUZE for a seller. README §13.8, §14.
+//
+// A seller asks to be paid their AVAILABLE balance to an account they
+// registered; staff pay out by hand outside the system and record what
+// happened. DECIDED 2026-10-08 (README §20 W3–W6, W8, W9, S2):
+//   1. No fee: the seller receives the full requested amount. (W3)
+//   2. Minimum 1,000 RWF; no maximum and no frequency limits. (W4, W5)
+//   3. Every withdrawal needs manual staff approval; nothing is automatic. (W6)
+//   4. Destinations are mobile money or bank, stored as data only; the
+//      payout happens outside the system. (W8)
+//   5. No name-match check, no approval, no cooling-off for destinations. (W9)
+//   6. Only an ACTIVE, approved seller can request one — the same gate as
+//      selling. Viewing and cancelling stay possible in any status. (S2)
+//
+// The funds are RESERVED when the request is made (a wallet movement
+// 'withdrawal', − available), so they can never be spent twice. A rejected,
+// failed, or cancelled request gives them back with a compensating movement
+// 'withdrawal_release' (+ available). Nothing is edited or deleted.
+//
+//     pending ──approve──► processing ──complete──► completed
+//        │                     │
+//        ├──reject──► rejected └──fail──► failed
+//        └──cancel──► cancelled   (the seller, while pending)
+
+// Where a seller receives withdrawals. Completely separate from MUHUZE's
+// payment_destinations: buyer-payment accounts are never used to pay a
+// seller, and a payout account is never shown to buyers (README §14,
+// invariant 23). One that any withdrawal used is deactivated, never deleted.
+Table seller_payout_destinations {
+  id uuid [primary key]
+  seller_id uuid [not null, ref: > sellers.id, note: 'RESTRICT delete; indexed — one seller owns their destinations']
+  type varchar(20) [not null, note: 'mobile_money | bank']
+  provider varchar(100) [not null, note: 'the mobile-money network or the bank, as the seller knows it']
+  account_number varchar(100) [not null, note: 'the phone number or bank account the money goes to']
+  account_name varchar(150) [not null, note: 'the name registered on that account']
+  is_active boolean [not null, default: true, note: 'inactive = cannot be chosen for a new withdrawal']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Check: type in its list
+}
+
+// One request to be paid out. The destination_* columns are a SNAPSHOT of
+// where this payout went, so later edits never rewrite history (README §14,
+// invariant 22). Never deleted.
+Table withdrawals {
+  id uuid [primary key]
+  seller_id uuid [not null, ref: > sellers.id, note: 'RESTRICT delete; indexed']
+  payout_destination_id uuid [not null, ref: > seller_payout_destinations.id, note: 'RESTRICT delete']
+  amount numeric(14,2) [not null, note: 'requested; >= 1000 (W4); no fee — the seller receives exactly this']
+  currency char(3) [not null, default: 'RWF']
+  status varchar(20) [not null, default: 'pending', note: 'pending | processing | completed | rejected | failed | cancelled']
+
+  destination_type varchar(20) [not null, note: 'SNAPSHOT']
+  destination_provider varchar(100) [not null, note: 'SNAPSHOT']
+  destination_account_number varchar(100) [not null, note: 'SNAPSHOT']
+  destination_account_name varchar(150) [not null, note: 'SNAPSHOT']
+
+  reason varchar(500) [note: 'why staff rejected or failed it — shown to the seller']
+  payout_reference varchar(100) [note: 'the external id of the payout, when staff record it']
+  reviewed_by_account_id uuid [ref: > accounts.id, note: 'who approved or rejected; SET NULL']
+  reviewed_at timestamptz [note: 'set when staff first act on it']
+  completed_at timestamptz [note: 'set when it becomes completed']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  // Index (status, created_at) — the staff review queue
+  // Check: status in its list; amount > 0
 }

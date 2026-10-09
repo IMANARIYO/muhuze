@@ -14,6 +14,7 @@ from app.modules.products.product_permissions import PRODUCT_PERMISSIONS
 from app.modules.seller_plans.seller_plan_permissions import SELLER_PLAN_PERMISSIONS
 from app.modules.sellers.seller_permissions import SELLER_PERMISSIONS
 from app.modules.wallets.wallet_permissions import WALLET_PERMISSIONS
+from app.modules.withdrawals.withdrawal_permissions import WITHDRAWAL_PERMISSIONS
 
 ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *AUTHORIZATION_PERMISSIONS,
@@ -24,6 +25,7 @@ ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *ORDER_PERMISSIONS,
     *PAYMENT_PERMISSIONS,
     *WALLET_PERMISSIONS,
+    *WITHDRAWAL_PERMISSIONS,
 )
 
 _codes = [permission.code for permission in ALL_PERMISSIONS]
