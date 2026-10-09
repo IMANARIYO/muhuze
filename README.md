@@ -1170,10 +1170,11 @@ Refund responsibility (`R1`), partial refunds (`R2`), refunds after funds have b
 A seller can request a withdrawal **from their available balance**, subject to:
 
 - sufficient **available** balance (never pending);
-- an **admin-approved seller** ([§15](#15-seller-verification-gates-withdrawals));
-- withdrawal rules, **fees**, and **minimum/maximum limits** (`W3`–`W5`);
+- an **active, admin-approved seller** ([§15](#15-seller-verification-gates-withdrawals), `S2`): a suspended or deactivated seller cannot request a withdrawal until reinstated;
+- an amount of at least **1,000 RWF** (`W4`); there is **no maximum and no frequency limit** today (`W5`);
+- **no fee** (`W3`): the seller receives the full requested amount, and the wallet is debited exactly that amount;
 - a valid **seller payout destination** (below);
-- administrative or automated review requirements (`W6`).
+- **manual admin approval** (`W6`): every withdrawal is reviewed and marked paid by staff holding the approval permission; there is no automatic processing.
 
 **Seller payout destinations.** A seller registers where they want to **receive** withdrawals:
 
@@ -1184,7 +1185,7 @@ SellerPayoutDestination        (belongs to one seller)
 ```
 
 - A payout destination is **completely separate** from MUHUZE's payment destinations ([§12.3](#123-muhuze-payment-destinations)). Buyer-payment configuration is **never** used as a seller's withdrawal account, and a seller's payout account is never shown to buyers as a place to pay.
-- Payout destinations belong to the seller. Only that seller (ownership check) and authorized administrators can manage or view them, subject to verification rules. Whether a destination's registered name must match the seller's verified identity, and whether new or changed destinations need approval or a cooling-off period, are **Open** (`W9`).
+- Payout destinations belong to the seller. Only that seller (ownership check) and authorized administrators can manage or view them, subject to verification rules. The registered name need not match the seller's verified identity, and new or changed destinations need no approval and no cooling-off period (`W9`).
 - Each Withdrawal records a **snapshot** of the payout destination it was paid to, so later edits never rewrite where past payouts went. A destination used by a withdrawal is deactivated, never deleted.
 
 Lifecycle, at minimum:
@@ -1198,7 +1199,7 @@ Pending ──► Processing ──► Completed
 
 - Requesting a withdrawal **reserves** the amount through a WalletTransaction, so the same funds can't be withdrawn twice.
 - A rejected, failed, or cancelled withdrawal returns the funds through a **compensating** WalletTransaction, never through an edit.
-- Every withdrawal creates auditable wallet and financial records. Payout providers are **Open** (`W8`).
+- Every withdrawal creates auditable wallet and financial records. Payout destinations are **mobile money or bank** (`W8`), recorded as data only (type, provider/bank, account, holder name); MUHUZE pays out **manually** outside the system and records the payout against the withdrawal.
 
 ## 14. Financial Invariants
 
@@ -1571,6 +1572,13 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 | W1 | A seller's share becomes **available when the buyer confirms receipt** of that seller's part of the order. | 2026-10-07 | [§13.6](#136-settlement-pending-vs-available) |
 | W2 | **No holding period**: available funds can be withdrawn at once. | 2026-10-07 | [§13.6](#136-settlement-pending-vs-available) |
 | W7 | **One wallet per seller, in RWF**, with pending and available balances and totals earned and withdrawn. | 2026-10-07 | [§13.5](#135-seller-wallet) |
+| W3 | **No withdrawal fees.** The seller receives the full requested amount. | 2026-10-08 | [§13.8](#138-withdrawals) |
+| W4 | **Minimum withdrawal: 1,000 RWF.** | 2026-10-08 | [§13.8](#138-withdrawals) |
+| W5 | **No maximum and no frequency limits** on withdrawals for now. | 2026-10-08 | [§13.8](#138-withdrawals) |
+| W6 | **All withdrawals require manual admin approval**; no automatic processing. | 2026-10-08 | [§13.8](#138-withdrawals) |
+| W8 | Payout destinations are **mobile money or bank**, stored as data; MUHUZE pays out manually, with no provider integration yet. | 2026-10-08 | [§13.8](#138-withdrawals) |
+| W9 | **No name-match check, no approval, and no cooling-off period** for payout destinations. | 2026-10-08 | [§13.8](#138-withdrawals) |
+| S2 | Only an **active, approved seller** can request a withdrawal; a suspended or deactivated seller must be reinstated first. | 2026-10-08 | [§13.8](#138-withdrawals) |
 | X4 | **MUHUZE has no wallet**; its income is the commission in the revenue records. | 2026-10-07 | [§13.5](#135-seller-wallet) |
 | K1 | **No product variants**: one product has one price. | 2026-10-07 | [§7.4](#74-product-rules) |
 | K2 | Attribute values are stored as **typed rows** validated against the category; nothing inherits (categories are flat). | 2026-10-07 | [§7.3](#73-products-dont-all-have-the-same-structure) |
@@ -1637,12 +1645,6 @@ Actual account details are **never** decided in this document. They go into admi
 
 | ID | Decision | Blocks |
 |---|---|---|
-| W3 | **Withdrawal fees.** | withdrawals |
-| W4 | **Minimum** withdrawal amount. | withdrawals |
-| W5 | **Maximum** withdrawal amount and frequency limits. | withdrawals |
-| W6 | Whether withdrawals require **manual admin approval**, and whether some sellers get **automatic** processing. | withdrawals |
-| W8 | Supported **seller payout providers**. | withdrawals |
-| W9 | **Seller payout destination rules:** must the registered name match the verified identity? Do new or changed destinations need approval or a cooling-off period? | withdrawals, seller_verification |
 | W10 | **A buyer who never confirms receipt.** Are the seller's pending funds released automatically after a number of days, by staff, or not at all? | orders, wallets |
 
 **Refunds and disputes**
@@ -1683,7 +1685,6 @@ These were described in the frontend project guide before the README became the 
 
 | ID | Decision | Blocks |
 |---|---|---|
-| S2 | Can a `suspended` or `deactivated` seller withdraw earnings they already have? | sellers, withdrawals |
 | S8 | Can an **approved seller change business details** (name, phone, location)? Freely, with a new review, or only through staff? Today it is not possible. | sellers |
 | F1 | **Referral funding:** is referral commission paid out of MUHUZE's commission? What applies to 0%-plan sellers? Who is eligible? | referrals, revenue |
 | M1 | Scope of **premium services**, and how they relate to seller plans. | premium |
