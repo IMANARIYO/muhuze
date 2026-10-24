@@ -13,7 +13,9 @@ staff, in a visible category, and its shop is open.
 A listing's `kind` (product or service) is chosen when it is created and
 never changes. Services are booked through service requests, not checkout
 (README §7.5); on a service's public page the provider's phone is shown only
-while they have a subscription in force.
+while they have a subscription in force. A service also says where it is
+done, how long it takes, how much notice it needs, the districts it covers,
+and its working hours; a service cannot be published without them.
 Every public method is one unit of work and commits it.
 """
 
@@ -38,12 +40,15 @@ from app.modules.products.product_constants import (
     PRODUCT_SLUG_MAX_LENGTH,
     ProductKind,
     ProductStatus,
+    ServiceLocation,
 )
 from app.modules.products.product_exceptions import (
+    DistrictFilterForServicesOnlyError,
     ImageStorageUnavailableError,
     InvalidImageOrderError,
     InvalidProductAttributesError,
     InvalidProductImageError,
+    InvalidServiceDetailsError,
     ProductHiddenByStaffError,
     ProductImageNotFoundError,
     ProductImageTooLargeError,
@@ -53,7 +58,12 @@ from app.modules.products.product_exceptions import (
     ProductStatusConflictError,
     TooManyProductImagesError,
 )
-from app.modules.products.product_model import Product, ProductAttributeValue, ProductImage
+from app.modules.products.product_model import (
+    Product,
+    ProductAttributeValue,
+    ProductImage,
+    ProductServiceHours,
+)
 from app.modules.products.product_repository import ProductRepository
 from app.modules.products.product_schema import (
     OptionValueResponse,
@@ -65,14 +75,22 @@ from app.modules.products.product_schema import (
     ProductResponse,
     ProductSummaryResponse,
     ProductUpdateRequest,
+    ProviderAreaResponse,
     PublicProductFilters,
     PublicProductResponse,
+    ServiceDetailsInput,
+    ServiceDetailsResponse,
+    ServiceHoursResponse,
     ShopSummaryResponse,
     StaffProductFilters,
 )
 from app.modules.seller_plans.seller_plan_service import SellerPlanService
 from app.modules.sellers.seller_exceptions import SellerNotFoundError
-from app.modules.sellers.seller_service import SellerService, open_shop_ids
+from app.modules.sellers.seller_service import (
+    SellerService,
+    open_shop_ids,
+    shop_ids_in_district,
+)
 from app.shared.responses.pagination import Page, PaginationParams
 from app.shared.slugs import slugify, unique_among
 
@@ -104,6 +122,8 @@ class ProductService:
         self, *, seller_id: uuid.UUID, payload: ProductCreateRequest
     ) -> OwnProductResponse:
         """Start a product as a draft. It may be incomplete; `publish` checks it."""
+        if payload.service is not None and payload.kind != ProductKind.SERVICE:
+            raise InvalidServiceDetailsError("Only a service has service details")
         # Raises "Category not found" for a category of another shop.
         category = await self._categories.get_own_category(
             seller_id=seller_id, category_id=payload.category_id
@@ -120,6 +140,8 @@ class ProductService:
         )
         await self._repository.add(product)
         await self._set_attribute_values(product, category, payload.attributes, current=[])
+        if payload.service is not None:
+            await self._set_service_details(product, payload.service)
         await self._session.commit()
         logger.info(
             "product created",
@@ -181,6 +203,10 @@ class ProductService:
             category = await self._categories.get_category_definition(product.category_id)
         if payload.attributes is not None:
             await self._set_attribute_values(product, category, payload.attributes, current=current)
+        if payload.service is not None:
+            if product.kind != ProductKind.SERVICE:
+                raise InvalidServiceDetailsError("Only a service has service details")
+            await self._set_service_details(product, payload.service)
 
         if product.status == ProductStatus.PUBLISHED:
             await self._require_publishable(product, category)
@@ -302,6 +328,8 @@ class ProductService:
     async def list_public_products(
         self, pagination: PaginationParams, filters: PublicProductFilters
     ) -> Page[ProductSummaryResponse]:
+        if filters.district is not None and filters.kind != ProductKind.SERVICE:
+            raise DistrictFilterForServicesOnlyError()
         products, total = await self._repository.list_products(
             pagination,
             sort=filters.sort,
@@ -312,6 +340,11 @@ class ProductService:
             min_price=filters.min_price,
             max_price=filters.max_price,
             visible_to_buyers=(open_shop_ids(), visible_category_ids()),
+            available_in=(
+                (filters.district, shop_ids_in_district(filters.district))
+                if filters.district is not None
+                else None
+            ),
         )
         return await self._summary_page(products, total, pagination)
 
@@ -338,6 +371,13 @@ class ProductService:
             **detail.model_dump(),
             shop=ShopSummaryResponse(id=shop.id, name=shop.business_name),
             contact_phone=await self._contact_phone(product, shop.id, shop.business_phone),
+            provider_area=(
+                ProviderAreaResponse(
+                    province=shop.province, district=shop.district, sector=shop.sector
+                )
+                if product.service_location == ServiceLocation.AT_PROVIDER
+                else None
+            ),
         )
 
     async def _contact_phone(
@@ -465,6 +505,59 @@ class ProductService:
         await self._repository.delete_values(product.id, attribute_ids=touched)
         await self._repository.add_values(rows)
 
+    # ── Service details ──────────────────────────────────────────────────
+
+    async def _set_service_details(self, product: Product, details: ServiceDetailsInput) -> None:
+        """Store the details that were sent. A null clears one, which a draft
+        may do; a published service must stay complete (checked by the
+        caller). Districts mean something only for `at_customer`."""
+        sent = details.model_fields_set
+        if "location" in sent:
+            product.service_location = details.location.value if details.location else None
+        if "duration_minutes" in sent:
+            product.service_duration_minutes = details.duration_minutes
+        if "min_notice_hours" in sent:
+            product.service_min_notice_hours = details.min_notice_hours
+        if "hours" in sent:
+            await self._repository.replace_hours(
+                product.id,
+                [
+                    ProductServiceHours(
+                        product_id=product.id,
+                        weekday=hours.weekday,
+                        opens_at=hours.opens_at,
+                        closes_at=hours.closes_at,
+                    )
+                    for hours in details.hours or []
+                ],
+            )
+        at_customer = product.service_location == ServiceLocation.AT_CUSTOMER
+        if "areas" in sent:
+            if details.areas and not at_customer:
+                raise InvalidServiceDetailsError(
+                    "Districts are only for a service done at the buyer's place (at_customer)"
+                )
+            await self._repository.replace_areas(product.id, details.areas or [])
+        elif "location" in sent and not at_customer:
+            await self._repository.replace_areas(product.id, [])
+        await self._session.flush()
+
+    async def _service_details(self, product: Product) -> ServiceDetailsResponse | None:
+        if product.kind != ProductKind.SERVICE:
+            return None
+        return ServiceDetailsResponse(
+            location=product.service_location,
+            duration_minutes=product.service_duration_minutes,
+            min_notice_hours=product.service_min_notice_hours,
+            areas=[area.district for area in await self._repository.list_areas(product.id)],
+            hours=[
+                ServiceHoursResponse(
+                    weekday=hours.weekday, opens_at=hours.opens_at, closes_at=hours.closes_at
+                )
+                for hours in await self._repository.list_hours(product.id)
+            ],
+        )
+
     # ── Publishing rules ─────────────────────────────────────────────────
 
     async def _publish_blockers(
@@ -486,6 +579,18 @@ class ProductService:
         )
         if not images:
             blockers.append("Add at least one image")
+        service = await self._service_details(product)
+        if service is not None:
+            if service.location is None:
+                blockers.append("Say where the service is done")
+            if service.duration_minutes is None:
+                blockers.append("Say how long the service takes")
+            if service.min_notice_hours is None:
+                blockers.append("Set the minimum notice (0 for none)")
+            if not service.hours:
+                blockers.append("Add the working hours")
+            if service.location == ServiceLocation.AT_CUSTOMER and not service.areas:
+                blockers.append("Add at least one district you work in")
         return blockers
 
     async def _require_publishable(
@@ -519,6 +624,7 @@ class ProductService:
             description=product.description,
             images=image_responses,
             attributes=_attribute_values(category, values, active_only=active_only),
+            service=await self._service_details(product),
         )
 
     async def _summaries(self, products: list[Product]) -> list[ProductSummaryResponse]:

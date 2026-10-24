@@ -54,13 +54,14 @@ from app.modules.orders.order_model import Order, OrderItem, SellerOrder, Seller
 from app.modules.orders.order_repository import OrderRepository
 from app.modules.orders.order_schema import (
     BuyerSellerOrderResponse,
-    DeliveryRequest,
+    DeliveryPlace,
     DeliveryResponse,
     OrderCreateRequest,
     OrderItemResponse,
     OrderResponse,
     OrderSummaryResponse,
     OwnOrderFilters,
+    ProviderAddressResponse,
     SellerOrderEventResponse,
     SellerOrderFilters,
     SellerOrderResponse,
@@ -69,7 +70,7 @@ from app.modules.orders.order_schema import (
     StaffOrderResponse,
     StaffSellerOrderResponse,
 )
-from app.modules.products.product_constants import ProductKind
+from app.modules.products.product_constants import ProductKind, ServiceLocation
 from app.modules.products.product_exceptions import ProductNotFoundError
 from app.modules.products.product_schema import PublicProductResponse
 from app.modules.products.product_service import ProductService
@@ -187,7 +188,10 @@ class OrderService:
         unit_price: Decimal,
         currency: str,
         scheduled_for: datetime,
-        location: DeliveryRequest,
+        service_location: ServiceLocation,
+        contact_name: str,
+        contact_phone: str,
+        place: DeliveryPlace | None,
         note: str | None,
         actor_id: uuid.UUID,
     ) -> Order:
@@ -200,9 +204,12 @@ class OrderService:
             buyer_account_id=buyer_account_id,
             kind=OrderKind.SERVICE,
             currency=currency,
-            delivery=location,
+            recipient_name=contact_name,
+            recipient_phone=contact_phone,
+            place=place,
             note=note,
             scheduled_for=scheduled_for,
+            service_location=service_location,
         )
         seller_order_id = uuid.uuid4()
         item = _order_item(seller_order_id, service, unit_price, quantity=1)
@@ -258,7 +265,9 @@ class OrderService:
             buyer_account_id=buyer_account_id,
             kind=OrderKind.PRODUCT,
             currency=currencies.pop(),
-            delivery=payload.delivery,
+            recipient_name=payload.delivery.recipient_name,
+            recipient_phone=payload.delivery.recipient_phone,
+            place=payload.delivery,
             note=payload.note,
         )
         seller_orders, items, events = [], [], []
@@ -540,9 +549,12 @@ class OrderService:
         buyer_account_id: uuid.UUID,
         kind: OrderKind,
         currency: str,
-        delivery: DeliveryRequest,
+        recipient_name: str,
+        recipient_phone: str,
+        place: DeliveryPlace | None,
         note: str | None,
         scheduled_for: datetime | None = None,
+        service_location: ServiceLocation | None = None,
     ) -> Order:
         """An unpaid order with no parts yet; its total is set from them."""
         return Order(
@@ -551,15 +563,16 @@ class OrderService:
             buyer_account_id=buyer_account_id,
             kind=kind.value,
             scheduled_for=scheduled_for,
+            service_location=service_location.value if service_location else None,
             status=OrderStatus.AWAITING_PAYMENT.value,
             currency=currency,
             total_amount=Decimal(0),
-            recipient_name=delivery.recipient_name,
-            recipient_phone=delivery.recipient_phone,
-            delivery_province=delivery.province,
-            delivery_district=delivery.district,
-            delivery_sector=delivery.sector,
-            delivery_address=delivery.address or None,
+            recipient_name=recipient_name,
+            recipient_phone=recipient_phone,
+            delivery_province=place.province if place else None,
+            delivery_district=place.district if place else None,
+            delivery_sector=place.sector if place else None,
+            delivery_address=(place.address or None) if place else None,
             buyer_note=note or None,
         )
 
@@ -696,12 +709,39 @@ class OrderService:
     async def _buyer_response(self, order: Order) -> OrderResponse:
         seller_orders = await self._repository.list_seller_orders_of([order.id])
         items, _ = await self._items_and_events(seller_orders)
+        contacts = await self._provider_contacts(order, seller_orders)
         return OrderResponse(
             **OrderSummaryResponse.model_validate(order).model_dump(),
             cancel_reason=order.cancel_reason,
             delivery=_delivery(order),
-            seller_orders=[_buyer_part(so, items.get(so.id, [])) for so in seller_orders],
+            seller_orders=[
+                _buyer_part(so, items.get(so.id, []), *contacts.get(so.seller_id, (None, None)))
+                for so in seller_orders
+            ],
         )
+
+    async def _provider_contacts(
+        self, order: Order, seller_orders: list[SellerOrder]
+    ) -> dict[uuid.UUID, tuple[str, ProviderAddressResponse | None]]:
+        """How the buyer reaches the provider on their order: only for a
+        service, and only once it is paid, whatever the provider's
+        subscription. The phone always; the shop's address when the service
+        is done there (README §7.5, V14, V15). Before payment the buyer
+        reaches the provider only through the request, so the job stays on
+        MUHUZE. The one place this rule lives."""
+        if order.kind != OrderKind.SERVICE or order.paid_at is None:
+            return {}
+        at_provider = order.service_location == ServiceLocation.AT_PROVIDER
+        contacts = await self._sellers.get_contacts([so.seller_id for so in seller_orders])
+        return {
+            seller_id: (
+                contact.business_phone,
+                ProviderAddressResponse.model_validate(contact, from_attributes=True)
+                if at_provider
+                else None,
+            )
+            for seller_id, contact in contacts.items()
+        }
 
     async def _seller_response(
         self, seller_order: SellerOrder, order: Order
@@ -763,7 +803,10 @@ def _delivery(order: Order) -> DeliveryResponse:
 
 
 def _buyer_part(
-    seller_order: SellerOrder, items: list[OrderItemResponse]
+    seller_order: SellerOrder,
+    items: list[OrderItemResponse],
+    provider_phone: str | None,
+    provider_address: ProviderAddressResponse | None,
 ) -> BuyerSellerOrderResponse:
     return BuyerSellerOrderResponse(
         id=seller_order.id,
@@ -772,6 +815,8 @@ def _buyer_part(
         status=seller_order.status,
         status_reason=seller_order.status_reason,
         subtotal=seller_order.subtotal,
+        provider_phone=provider_phone,
+        provider_address=provider_address,
         items=items,
     )
 
@@ -782,6 +827,7 @@ def _seller_summary_fields(seller_order: SellerOrder, order: Order) -> dict:
         "order_number": order.order_number,
         "kind": order.kind,
         "scheduled_for": order.scheduled_for,
+        "service_location": order.service_location,
         "status": seller_order.status,
         "currency": order.currency,
         "subtotal": seller_order.subtotal,

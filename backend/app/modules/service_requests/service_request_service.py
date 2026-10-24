@@ -6,39 +6,51 @@ Rules are documented in docs/features/019_service_requests.md.
         └──────► cancelled   (the buyer withdraws it before an answer)
 
 Nothing is paid until the provider accepts, so a busy provider never causes
-a refund. Acceptance hands over to orders: from then on the order is paid,
-done, confirmed, and settled like any other, and this request only points
-at it. The price is the one the buyer saw when asking.
+a refund. A request must fit the service: a place only for one done at the
+buyer's place, in a district it covers; a time far enough ahead for its
+notice and within its working hours (README §7.5, V15–V18).
+
+Acceptance hands over to orders: from then on the order is paid, done,
+confirmed, and settled like any other, and this request only points at it.
+The price is the one the buyer saw when asking.
 
 Every public method is one unit of work and commits it.
 """
 
 import uuid
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.logging import get_logger
-from app.modules.orders.order_schema import DeliveryRequest, DeliveryResponse
+from app.modules.orders.order_schema import DeliveryPlace
 from app.modules.orders.order_service import OrderService
-from app.modules.products.product_constants import ProductKind
+from app.modules.products.product_constants import SERVICE_TIMEZONE, ProductKind, ServiceLocation
 from app.modules.products.product_exceptions import ProductNotFoundError
-from app.modules.products.product_schema import PublicProductResponse
+from app.modules.products.product_schema import PublicProductResponse, ServiceDetailsResponse
 from app.modules.products.product_service import ProductService
 from app.modules.sellers.seller_service import SellerService
 from app.modules.service_requests.service_request_constants import ServiceRequestStatus
 from app.modules.service_requests.service_request_exceptions import (
     NotAServiceError,
+    OutsideServiceAreaError,
+    OutsideWorkingHoursError,
     OwnServiceRequestError,
     ScheduledTimeInPastError,
     ServiceNoLongerOfferedError,
     ServiceNotFoundError,
+    ServicePlaceError,
     ServiceRequestNotFoundError,
     ServiceRequestStatusConflictError,
+    TooShortNoticeError,
 )
 from app.modules.service_requests.service_request_model import ServiceRequest
 from app.modules.service_requests.service_request_repository import ServiceRequestRepository
 from app.modules.service_requests.service_request_schema import (
+    ServiceContact,
+    ServicePlaceResponse,
     ServiceRequestCreateRequest,
     ServiceRequestFilters,
     ServiceRequestResponse,
@@ -79,8 +91,20 @@ class ServiceRequestService:
             raise OwnServiceRequestError()
         if payload.scheduled_for <= utc_now():
             raise ScheduledTimeInPastError()
+        # Publishing needs the details, but a service published before they
+        # existed may lack them: it takes no requests until it is completed.
+        details = service.service
+        if (
+            details is None
+            or details.location is None
+            or not details.hours
+            or (details.location == ServiceLocation.AT_CUSTOMER and not details.areas)
+        ):
+            raise ServiceNotFoundError()
+        _check_place(details, payload.place)
+        _check_time(details, payload.scheduled_for)
 
-        location = payload.location
+        place = payload.place
         request = ServiceRequest(
             buyer_account_id=buyer_account_id,
             seller_id=service.seller_id,
@@ -89,13 +113,14 @@ class ServiceRequestService:
             seller_name=service.shop.name,
             unit_price=service.price,
             currency=service.currency,
+            service_location=details.location.value,
             scheduled_for=payload.scheduled_for,
-            contact_name=location.recipient_name,
-            contact_phone=location.recipient_phone,
-            province=location.province,
-            district=location.district,
-            sector=location.sector,
-            address=location.address or None,
+            contact_name=payload.contact.name,
+            contact_phone=payload.contact.phone,
+            province=place.province if place else None,
+            district=place.district if place else None,
+            sector=place.sector if place else None,
+            address=(place.address or None) if place else None,
             note=payload.note or None,
             status=R.REQUESTED.value,
         )
@@ -180,14 +205,10 @@ class ServiceRequestService:
             unit_price=request.unit_price,
             currency=request.currency,
             scheduled_for=request.scheduled_for,
-            location=DeliveryRequest(
-                recipient_name=request.contact_name,
-                recipient_phone=request.contact_phone,
-                province=request.province,
-                district=request.district,
-                sector=request.sector,
-                address=request.address,
-            ),
+            service_location=ServiceLocation(request.service_location),
+            contact_name=request.contact_name,
+            contact_phone=request.contact_phone,
+            place=_place(request),
             note=request.note,
             actor_id=actor_id,
         )
@@ -292,16 +313,15 @@ class ServiceRequestService:
                 buyer_account_id=request.buyer_account_id,
                 unit_price=request.unit_price,
                 currency=request.currency,
+                service_location=request.service_location,
                 scheduled_for=request.scheduled_for,
-                location=DeliveryResponse(
-                    recipient_name=request.contact_name,
-                    recipient_phone=request.contact_phone,
-                    province=request.province,
-                    district=request.district,
-                    sector=request.sector,
-                    address=request.address,
-                    note=request.note,
+                contact=ServiceContact(name=request.contact_name, phone=request.contact_phone),
+                place=(
+                    ServicePlaceResponse.model_validate(place.model_dump())
+                    if (place := _place(request))
+                    else None
                 ),
+                note=request.note,
                 responded_at=request.responded_at,
                 cancelled_at=request.cancelled_at,
                 created_at=request.created_at,
@@ -316,3 +336,51 @@ class ServiceRequestService:
         return Page[ServiceRequestResponse].build(
             await self._responses(requests), total, pagination
         )
+
+
+# ── Fitting a request to the service (README §7.5, V15–V18) ──────────────
+
+
+def _check_place(details: ServiceDetailsResponse, place: DeliveryPlace | None) -> None:
+    if details.location != ServiceLocation.AT_CUSTOMER:
+        if place is not None:
+            raise ServicePlaceError(
+                "This service is not done at your place: leave out the place"
+                if details.location == ServiceLocation.ONLINE
+                else "This service is done at the provider's place: leave out the place"
+            )
+        return
+    if place is None:
+        raise ServicePlaceError("Say where the service should be done")
+    if place.district.casefold() not in {area.casefold() for area in details.areas}:
+        raise OutsideServiceAreaError(
+            f"This provider works only in these districts: {', '.join(details.areas)}"
+        )
+
+
+def _check_time(details: ServiceDetailsResponse, scheduled_for: datetime) -> None:
+    notice = details.min_notice_hours or 0
+    if scheduled_for < utc_now() + timedelta(hours=notice):
+        raise TooShortNoticeError(f"This service must be requested at least {notice} hours ahead")
+    local = scheduled_for.astimezone(ZoneInfo(SERVICE_TIMEZONE))
+    day = next((h for h in details.hours if h.weekday == local.isoweekday()), None)
+    if day is None or not day.opens_at <= local.time() < day.closes_at:
+        raise OutsideWorkingHoursError(
+            "That time is outside the provider's working hours: " + "; ".join(_hours_text(details))
+        )
+
+
+def _hours_text(details: ServiceDetailsResponse) -> list[str]:
+    names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    return [f"{names[h.weekday - 1]} {h.opens_at:%H:%M}-{h.closes_at:%H:%M}" for h in details.hours]
+
+
+def _place(request: ServiceRequest) -> DeliveryPlace | None:
+    if request.district is None:
+        return None
+    return DeliveryPlace(
+        province=request.province,
+        district=request.district,
+        sector=request.sector,
+        address=request.address,
+    )

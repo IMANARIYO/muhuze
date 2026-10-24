@@ -418,6 +418,9 @@ Table products {
   status varchar(20) [not null, default: 'draft', note: 'draft | published | archived — only `published` is visible to buyers and can be bought']
   published_at timestamptz [note: 'first time it was published — never cleared; a product with this set cannot be deleted']
   hidden_by_staff_at timestamptz [note: 'set when staff hide it for breaking the rules — not visible to buyers and the seller cannot republish it; null otherwise']
+  service_location varchar(20) [note: 'a service only: at_customer | at_provider | online (README §7.5, V15); null on goods; required to publish a service']
+  service_duration_minutes integer [note: 'a service only: how long the job takes, shown to buyers (V17); > 0']
+  service_min_notice_hours integer [note: 'a service only: how far ahead a request must be (V17); >= 0']
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
   // Unique (seller_id, slug)
@@ -425,6 +428,30 @@ Table products {
   // Index (category_id) — a category's products
   // Index (status, published_at) — buyer listings, newest first
   // Check: status and kind in their lists; price >= 0
+  // Check: service_location in its list; goods have no service_* values; duration > 0, notice >= 0
+}
+
+// The districts an at_customer service is offered in (README §7.5, V16).
+Table product_service_areas {
+  id uuid [primary key]
+  product_id uuid [not null, ref: > products.id, note: 'CASCADE delete']
+  district varchar(100) [not null, note: 'as the seller typed it; matched case-insensitively']
+  created_at timestamptz [not null]
+  // Unique (product_id, district)
+  // Index lower(district) — buyers filter services by district
+}
+
+// When a service can start, one range per weekday, in Rwanda time
+// (README §7.5, V18). A day without a row is a day off.
+Table product_service_hours {
+  id uuid [primary key]
+  product_id uuid [not null, ref: > products.id, note: 'CASCADE delete']
+  weekday smallint [not null, note: 'ISO: 1 = Monday … 7 = Sunday']
+  opens_at time [not null]
+  closes_at time [not null, note: 'a request must START before this']
+  created_at timestamptz [not null]
+  // Unique (product_id, weekday)
+  // Check: weekday between 1 and 7; opens_at < closes_at
 }
 
 // The pictures of a product, in the seller's order. The first one
@@ -614,6 +641,7 @@ Table orders {
   buyer_account_id uuid [not null, ref: > accounts.id, note: 'RESTRICT delete; indexed']
   kind varchar(20) [not null, default: 'product', note: 'product (a checkout) | service (one accepted service request: one seller order, one item)']
   scheduled_for timestamptz [note: 'a service order: the agreed time; null for a checkout']
+  service_location varchar(20) [note: 'a service order: at_customer | at_provider | online, from the listing at request time; null for a checkout']
   status varchar(20) [not null, default: 'awaiting_payment', note: 'awaiting_payment | in_progress | completed | cancelled — DERIVED from payment and the seller orders by one function; never set directly']
   currency char(3) [not null, default: 'RWF']
   total_amount numeric(14,2) [not null, note: 'sum of the seller orders\' subtotals — what the buyer pays']
@@ -623,9 +651,9 @@ Table orders {
   // where the service happens and whom to contact, copied from the request.
   recipient_name varchar(150) [not null]
   recipient_phone varchar(20) [not null, note: 'E.164']
-  delivery_province varchar(100) [not null]
-  delivery_district varchar(100) [not null]
-  delivery_sector varchar(100) [not null]
+  delivery_province varchar(100) [note: 'always for a checkout; for a service only when at_customer (V15)']
+  delivery_district varchar(100)
+  delivery_sector varchar(100)
   delivery_address varchar(255) [note: 'street, building, landmark']
   buyer_note varchar(500) [note: 'anything the buyer wants the sellers to know']
 
@@ -637,6 +665,8 @@ Table orders {
   // Index (buyer_account_id, created_at)
   // Check: status and kind in their lists; total_amount >= 0
   // Check: (kind = 'service') = (scheduled_for IS NOT NULL)
+  // Check: (kind = 'service') = (service_location IS NOT NULL)
+  // Check: the place (province, district, sector) is all or nothing; present exactly for a checkout or an at_customer service; no address without it
 }
 
 // One shop's part of an order: its own fulfilment status, and its own money
@@ -711,12 +741,13 @@ Table service_requests {
   unit_price numeric(14,2) [not null, note: 'SNAPSHOT — the price the buyer saw; the order charges exactly this']
   currency char(3) [not null, default: 'RWF']
 
-  scheduled_for timestamptz [not null, note: 'when the buyer wants it; must be in the future when requested and when accepted']
+  service_location varchar(20) [not null, note: 'SNAPSHOT of the listing: at_customer | at_provider | online (V15)']
+  scheduled_for timestamptz [not null, note: 'when it should start; future, past the notice, and within the working hours when requested; still future when accepted']
   contact_name varchar(150) [not null]
   contact_phone varchar(20) [not null, note: 'E.164']
-  province varchar(100) [not null]
-  district varchar(100) [not null]
-  sector varchar(100) [not null]
+  province varchar(100) [note: 'the place: only for at_customer, and then required']
+  district varchar(100) [note: 'one the service covers (V16)']
+  sector varchar(100)
   address varchar(255) [note: 'street, building, landmark — optional']
   note varchar(500)
 
@@ -732,6 +763,7 @@ Table service_requests {
   // Index (seller_id, status, created_at) — a provider's incoming requests
   // Check: status in its list; unit_price >= 0
   // Check: (status = 'accepted') = (order_id IS NOT NULL)
+  // Check: service_location in its list; the place is all or nothing, present exactly for at_customer; no address without it
 }
 
 // ── Payments ──────────────────────────────────────────────────────────

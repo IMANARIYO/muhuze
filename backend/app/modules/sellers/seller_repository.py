@@ -32,6 +32,11 @@ class SellerRepository:
     ) -> Seller | None:
         return await self._one(select(Seller).where(Seller.account_id == account_id), for_update)
 
+    async def list_by_ids(self, seller_ids: list[uuid.UUID]) -> list[Seller]:
+        if not seller_ids:
+            return []
+        return list(await self._session.scalars(select(Seller).where(Seller.id.in_(seller_ids))))
+
     async def business_name_exists(
         self, business_name: str, *, except_seller_id: uuid.UUID | None = None
     ) -> bool:

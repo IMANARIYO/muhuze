@@ -14,7 +14,7 @@ Every public method is one unit of work and commits it.
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,6 +58,7 @@ from app.modules.sellers.seller_repository import SellerRepository
 from app.modules.sellers.seller_schema import (
     DocumentUrlResponse,
     SellerApplicationRequest,
+    SellerContact,
     SellerListFilters,
     SellerLocation,
     SellerResponse,
@@ -83,6 +84,13 @@ def open_shop_ids() -> Select:
     The rule itself ("open" means `active`) stays here, in one place.
     """
     return select(Seller.id).where(Seller.status == SellerStatus.ACTIVE.value)
+
+
+def shop_ids_in_district(district: str) -> Select:
+    """The ids of sellers whose shop is in this district (case-insensitive),
+    as a subquery, for other features' list queries. Combine it with
+    `open_shop_ids()` where only open shops count."""
+    return select(Seller.id).where(func.lower(Seller.district) == district.lower())
 
 
 class SellerService:
@@ -112,6 +120,14 @@ class SellerService:
         rules such as "you cannot buy from your own shop"."""
         seller = await self._repository.get_by_account(account_id)
         return seller.id if seller is not None else None
+
+    async def get_contacts(self, seller_ids: list[uuid.UUID]) -> dict[uuid.UUID, SellerContact]:
+        """Each seller's current business phone and shop address, by id, in
+        one query. Read only; the caller decides who may see what."""
+        return {
+            seller.id: SellerContact.model_validate(seller)
+            for seller in await self._repository.list_by_ids(seller_ids)
+        }
 
     async def get_open_shop(self, seller_id: uuid.UUID) -> Seller:
         """A seller whose shop buyers may see. Any other seller looks exactly

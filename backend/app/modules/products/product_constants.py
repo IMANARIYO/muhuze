@@ -16,6 +16,22 @@ class ProductKind(StrEnum):
     SERVICE = "service"  # work done for the buyer, booked by request → accept → pay
 
 
+class ServiceLocation(StrEnum):
+    """Where a service is done (README §7.5, V15). Decides what a request
+    asks of the buyer."""
+
+    AT_CUSTOMER = "at_customer"  # the provider goes to the buyer: the buyer gives the address
+    AT_PROVIDER = "at_provider"  # the buyer comes to the provider's shop
+    ONLINE = "online"  # done remotely: no place at all
+
+
+# A service's working hours are read in the marketplace's local time. One
+# country for now, like the currency (README §20 T2, V18).
+SERVICE_TIMEZONE = "Africa/Kigali"
+SERVICE_DURATION_MAX_MINUTES = 7 * 24 * 60
+SERVICE_MIN_NOTICE_MAX_HOURS = 30 * 24
+SERVICE_AREAS_MAX = 50
+
 # One currency for now (README §20 T2).
 DEFAULT_CURRENCY = "RWF"
 

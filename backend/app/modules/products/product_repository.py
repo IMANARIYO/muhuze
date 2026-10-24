@@ -4,11 +4,17 @@ owns the transaction (AGENTS.md §13)."""
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import Select, delete, func, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.products.product_constants import ProductStatus
-from app.modules.products.product_model import Product, ProductAttributeValue, ProductImage
+from app.modules.products.product_constants import ProductStatus, ServiceLocation
+from app.modules.products.product_model import (
+    Product,
+    ProductAttributeValue,
+    ProductImage,
+    ProductServiceArea,
+    ProductServiceHours,
+)
 from app.shared.responses.pagination import PaginationParams
 
 # The sort keys a client may ask for, mapped to real columns. Nothing else
@@ -65,10 +71,15 @@ class ProductRepository:
         min_price: Decimal | None = None,
         max_price: Decimal | None = None,
         visible_to_buyers: tuple[Select, Select] | None = None,
+        available_in: tuple[str, Select] | None = None,
     ) -> tuple[list[Product], int]:
         """`visible_to_buyers` is `(open shop ids, visible category ids)`:
         subqueries supplied by the sellers and categories features, which own
-        those rules. When given, only products a buyer may see are returned."""
+        those rules. When given, only products a buyer may see are returned.
+
+        `available_in` is `(district, ids of shops in that district)`: only
+        services a buyer there can get: done in that district, at a shop in
+        it, or online."""
         statement = select(Product)
         if seller_id is not None:
             statement = statement.where(Product.seller_id == seller_id)
@@ -92,6 +103,20 @@ class ProductRepository:
                 Product.hidden_by_staff_at.is_(None),
                 Product.seller_id.in_(open_shops),
                 Product.category_id.in_(visible_categories),
+            )
+        if available_in is not None:
+            district, shops_there = available_in
+            covering = select(ProductServiceArea.product_id).where(
+                func.lower(ProductServiceArea.district) == district.lower()
+            )
+            statement = statement.where(
+                or_(
+                    Product.service_location == ServiceLocation.ONLINE.value,
+                    (Product.service_location == ServiceLocation.AT_CUSTOMER.value)
+                    & Product.id.in_(covering),
+                    (Product.service_location == ServiceLocation.AT_PROVIDER.value)
+                    & Product.seller_id.in_(shops_there),
+                )
             )
 
         total = await self._session.scalar(select(func.count()).select_from(statement.subquery()))
@@ -154,4 +179,38 @@ class ProductRepository:
 
     async def add_values(self, values: list[ProductAttributeValue]) -> None:
         self._session.add_all(values)
+        await self._session.flush()
+
+    # ── Service details ──────────────────────────────────────────────────
+
+    async def list_areas(self, product_id: uuid.UUID) -> list[ProductServiceArea]:
+        rows = await self._session.scalars(
+            select(ProductServiceArea)
+            .where(ProductServiceArea.product_id == product_id)
+            .order_by(func.lower(ProductServiceArea.district))
+        )
+        return list(rows)
+
+    async def replace_areas(self, product_id: uuid.UUID, districts: list[str]) -> None:
+        await self._session.execute(
+            delete(ProductServiceArea).where(ProductServiceArea.product_id == product_id)
+        )
+        self._session.add_all(
+            ProductServiceArea(product_id=product_id, district=district) for district in districts
+        )
+        await self._session.flush()
+
+    async def list_hours(self, product_id: uuid.UUID) -> list[ProductServiceHours]:
+        rows = await self._session.scalars(
+            select(ProductServiceHours)
+            .where(ProductServiceHours.product_id == product_id)
+            .order_by(ProductServiceHours.weekday)
+        )
+        return list(rows)
+
+    async def replace_hours(self, product_id: uuid.UUID, hours: list[ProductServiceHours]) -> None:
+        await self._session.execute(
+            delete(ProductServiceHours).where(ProductServiceHours.product_id == product_id)
+        )
+        self._session.add_all(hours)
         await self._session.flush()

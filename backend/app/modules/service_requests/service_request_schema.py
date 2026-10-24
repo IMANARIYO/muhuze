@@ -7,10 +7,12 @@ from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
 
 from app.modules.orders.order_constants import BUYER_NOTE_MAX_LENGTH
 from app.modules.orders.order_schema import (
-    DeliveryRequest,
-    DeliveryResponse,
+    DeliveryPlace,
     OrderSummaryResponse,
+    Phone,
+    RecipientName,
 )
+from app.modules.products.product_constants import ServiceLocation
 from app.modules.service_requests.service_request_constants import ServiceRequestStatus
 
 # ── Requests ─────────────────────────────────────────────────────────────
@@ -18,13 +20,26 @@ from app.modules.service_requests.service_request_constants import ServiceReques
 # service; the backend reads its price and shop (README §7.5).
 
 
+class ServiceContact(BaseModel):
+    name: RecipientName
+    phone: Phone
+
+
 class ServiceRequestCreateRequest(BaseModel):
     service_id: uuid.UUID = Field(description="A listing on offer whose `kind` is `service`")
     scheduled_for: AwareDatetime = Field(
-        description="When you want it done, with a time zone. Must be in the future."
+        description=(
+            "When it should start, with a time zone: far enough ahead for the service's "
+            "minimum notice, and within its working hours"
+        )
     )
-    location: DeliveryRequest = Field(
-        description="Where the service happens, and whom the provider contacts there"
+    contact: ServiceContact = Field(description="Whom the provider contacts about the job")
+    place: DeliveryPlace | None = Field(
+        default=None,
+        description=(
+            "Where to do it: required for a service done at your place (`at_customer`), in "
+            "one of the districts it covers; left out for `at_provider` and `online`"
+        ),
     )
     note: (
         Annotated[str, StringConstraints(strip_whitespace=True, max_length=BUYER_NOTE_MAX_LENGTH)]
@@ -33,6 +48,13 @@ class ServiceRequestCreateRequest(BaseModel):
 
 
 # ── Responses ────────────────────────────────────────────────────────────
+
+
+class ServicePlaceResponse(BaseModel):
+    province: str
+    district: str
+    sector: str
+    address: str | None
 
 
 class ServiceRequestResponse(BaseModel):
@@ -49,8 +71,11 @@ class ServiceRequestResponse(BaseModel):
     buyer_account_id: uuid.UUID
     unit_price: Decimal = Field(description="What the buyer pays if it is accepted")
     currency: str
+    service_location: ServiceLocation
     scheduled_for: datetime
-    location: DeliveryResponse
+    contact: ServiceContact
+    place: ServicePlaceResponse | None = Field(description="Only for `at_customer`")
+    note: str | None
     responded_at: datetime | None
     cancelled_at: datetime | None
     created_at: datetime

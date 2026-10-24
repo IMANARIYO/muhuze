@@ -20,6 +20,7 @@ from app.modules.orders.order_constants import (
     OrderStatus,
     SellerOrderStatus,
 )
+from app.modules.products.product_constants import ServiceLocation
 
 AddressPart = Annotated[
     str,
@@ -42,14 +43,17 @@ class OrderItemRequest(BaseModel):
     quantity: int = Field(ge=1, le=ITEM_QUANTITY_MAX)
 
 
-class DeliveryRequest(BaseModel):
-    recipient_name: Annotated[
-        str,
-        StringConstraints(
-            strip_whitespace=True, min_length=1, max_length=RECIPIENT_NAME_MAX_LENGTH
-        ),
-    ]
-    recipient_phone: str = Field(pattern=PHONE_PATTERN, description="E.164, e.g. +2507XXXXXXXX")
+RecipientName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=RECIPIENT_NAME_MAX_LENGTH),
+]
+Phone = Annotated[str, Field(pattern=PHONE_PATTERN, description="E.164, e.g. +2507XXXXXXXX")]
+
+
+class DeliveryPlace(BaseModel):
+    """A place in Rwanda: where goods are delivered, or where a service done
+    at the buyer's place happens."""
+
     province: AddressPart
     district: AddressPart
     sector: AddressPart
@@ -59,6 +63,11 @@ class DeliveryRequest(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Street, building, landmark")
+
+
+class DeliveryRequest(DeliveryPlace):
+    recipient_name: RecipientName
+    recipient_phone: Phone
 
 
 class OrderCreateRequest(BaseModel):
@@ -104,16 +113,26 @@ class OrderItemResponse(BaseModel):
 
 
 class DeliveryResponse(BaseModel):
-    """Where to deliver. For a service order: where the service happens and
-    whom to contact there."""
+    """Where to deliver and whom to contact. For a service order: whom to
+    contact, and where the service happens. The place is null for a service
+    done at the provider's place or online (README §7.5, V15)."""
 
     recipient_name: str
     recipient_phone: str
+    province: str | None
+    district: str | None
+    sector: str | None
+    address: str | None
+    note: str | None
+
+
+class ProviderAddressResponse(BaseModel):
+    """Where to go for a service done at the provider's place."""
+
     province: str
     district: str
     sector: str
-    address: str | None
-    note: str | None
+    street_address: str | None
 
 
 class SellerOrderEventResponse(BaseModel):
@@ -135,6 +154,20 @@ class BuyerSellerOrderResponse(BaseModel):
     status: SellerOrderStatus
     status_reason: str | None
     subtotal: Decimal
+    provider_phone: str | None = Field(
+        default=None,
+        description=(
+            "A service order only, once it is paid: the provider's business phone, "
+            "with or without a subscription. Null otherwise (README §7.5, V14)"
+        ),
+    )
+    provider_address: ProviderAddressResponse | None = Field(
+        default=None,
+        description=(
+            "A paid `at_provider` service order only: the shop's address, where to go. "
+            "Null otherwise (README §7.5, V15)"
+        ),
+    )
     items: list[OrderItemResponse]
 
 
@@ -145,6 +178,9 @@ class OrderSummaryResponse(BaseModel):
     order_number: str
     kind: OrderKind = Field(description="`product` (a checkout) or `service` (an accepted request)")
     scheduled_for: datetime | None = Field(description="A service order: the agreed time")
+    service_location: ServiceLocation | None = Field(
+        description="A service order: `at_customer`, `at_provider`, or `online`"
+    )
     status: OrderStatus
     currency: str
     total_amount: Decimal
@@ -168,6 +204,9 @@ class SellerOrderSummaryResponse(BaseModel):
     order_number: str
     kind: OrderKind
     scheduled_for: datetime | None = Field(description="A service order: the agreed time")
+    service_location: ServiceLocation | None = Field(
+        description="A service order: `at_customer`, `at_provider`, or `online`"
+    )
     status: SellerOrderStatus
     currency: str
     subtotal: Decimal

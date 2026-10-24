@@ -16,7 +16,7 @@ All paths are under `/api/v1/service-requests`, need `Authorization: Bearer <acc
                                                           → the provider's earning becomes available
 ```
 
-Find services to request with `GET /products?kind=service` ([products API](products.md)). A service is never put in the cart: checkout refuses it.
+Find services to request with `GET /products?kind=service`, optionally `&district=…` for those a buyer there can get ([products API](products.md)). A service is never put in the cart: checkout refuses it.
 
 ## For the buyer
 
@@ -35,14 +35,8 @@ Needs a login only. Every path reaches only the caller's own requests.
 {
   "service_id": "b7e2…",
   "scheduled_for": "2026-11-02T09:00:00+02:00",
-  "location": {
-    "recipient_name": "Carol Mukamana",
-    "recipient_phone": "+250788999000",
-    "province": "Kigali",
-    "district": "Kicukiro",
-    "sector": "Niboye",
-    "address": "KK 15 Ave, house 12"
-  },
+  "contact": { "name": "Carol Mukamana", "phone": "+250788999000" },
+  "place": { "province": "Kigali", "district": "Kicukiro", "sector": "Niboye", "address": "KK 15 Ave, house 12" },
   "note": "Two bedrooms"
 }
 ```
@@ -50,11 +44,12 @@ Needs a login only. Every path reaches only the caller's own requests.
 | Field | Rule |
 |---|---|
 | `service_id` | A listing on offer with `kind: "service"` |
-| `scheduled_for` | With a time zone, and in the future |
-| `location.recipient_name`, `recipient_phone` | Whom the provider contacts. Phone in E.164 |
-| `location.province`, `district`, `sector` | Required |
-| `location.address` | Optional, up to 255 characters |
+| `scheduled_for` | With a time zone; at least the service's `min_notice_hours` ahead; and starting within its working hours (`service.hours`, Rwanda time) |
+| `contact.name`, `contact.phone` | Whom the provider contacts. Phone in E.164 |
+| `place` | **Only when `service.location` is `at_customer`**, and then required: `province`, `district`, `sector`, optional `address` (up to 255 characters). The district must be one of `service.areas` (any case). Leave it out for `at_provider` and `online` |
 | `note` | Optional, up to 500 characters; the provider sees it |
+
+Read the service's `service` block from `GET /products/{id}` to build the form: where it is done, the districts it covers, the notice, and the hours.
 
 **Do not send a price.** The backend reads it from the listing and records it: if the provider later changes the price, this request is still charged what the buyer saw.
 
@@ -96,8 +91,11 @@ The same shape for the buyer, the provider, and staff:
   "buyer_account_id": "91d2…",
   "unit_price": "20000.00",
   "currency": "RWF",
+  "service_location": "at_customer",
   "scheduled_for": "2026-11-02T07:00:00Z",
-  "location": { "recipient_name": "Carol Mukamana", "recipient_phone": "+250788999000", "province": "Kigali", "district": "Kicukiro", "sector": "Niboye", "address": "KK 15 Ave, house 12", "note": "Two bedrooms" },
+  "contact": { "name": "Carol Mukamana", "phone": "+250788999000" },
+  "place": { "province": "Kigali", "district": "Kicukiro", "sector": "Niboye", "address": "KK 15 Ave, house 12" },
+  "note": "Two bedrooms",
   "responded_at": "2026-10-22T10:05:00Z",
   "cancelled_at": null,
   "created_at": "2026-10-22T09:50:00Z",
@@ -106,6 +104,7 @@ The same shape for the buyer, the provider, and staff:
     "order_number": "MHZ-000124",
     "kind": "service",
     "scheduled_for": "2026-11-02T07:00:00Z",
+    "service_location": "at_customer",
     "status": "awaiting_payment",
     "currency": "RWF",
     "total_amount": "20000.00",
@@ -123,6 +122,8 @@ The same shape for the buyer, the provider, and staff:
 | `declined` | The provider said no; `status_reason` says why |
 | `cancelled` | The buyer withdrew it |
 
+`place` is `null` for a service done at the provider's place or online. For `at_provider`, the buyer finds the shop's address on the order once it is paid (`provider_address`, [orders API](orders.md)).
+
 ## Errors
 
 | Status | Message | When |
@@ -130,12 +131,17 @@ The same shape for the buyer, the provider, and staff:
 | 401 | `Authentication required` | No valid access token |
 | 403 | `You do not have permission to perform this action` | Provider or staff endpoint without the permission |
 | 403 | `Only an approved, active seller can do this` | The provider is suspended, closed, or not approved |
-| 404 | `Service not found` | Unknown id, or the service is not on offer right now |
+| 404 | `Service not found` | Unknown id, the service is not on offer right now, or it was published before service details existed and has not been completed |
 | 404 | `Service request not found` | Unknown id, **someone else's request**, or another shop's |
 | 409 | `Only a request still waiting for an answer can be accepted` (and the like) | Answering or cancelling twice, or after the other side acted |
 | 422 | `This listing is a product. Add it to your cart and check out instead.` | `service_id` is goods |
 | 422 | `You cannot request a service from your own shop` | |
 | 422 | `The time for the service must be in the future` | `scheduled_for` has passed (or has no time zone: field error) |
+| 422 | `This service must be requested at least N hours ahead` | Sooner than the service's minimum notice |
+| 422 | `That time is outside the provider's working hours: Mon 08:00-18:00; …` | The start is on a day off or outside that day's range |
+| 422 | `Say where the service should be done` | `at_customer` without `place` |
+| 422 | `This service is done at the provider's place: leave out the place` (or `… is not done at your place …` for online) | `place` sent for `at_provider` or `online` |
+| 422 | `This provider works only in these districts: …` | `place.district` is not covered |
 | 422 | `The requested time has passed. The buyer can send a new request.` | Accepting too late |
 | 422 | `This service is not on offer right now. Publish it again to accept the request.` | Accepting while the listing is archived or hidden |
 | 422 | `MUHUZE has not set its commission rate yet` | Accepting before staff set the default rate |

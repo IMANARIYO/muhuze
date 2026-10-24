@@ -62,6 +62,24 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "(kind = 'service') = (scheduled_for IS NOT NULL)", name="scheduled_for_matches_kind"
         ),
+        CheckConstraint(
+            "(kind = 'service') = (service_location IS NOT NULL)",
+            name="service_location_matches_kind",
+        ),
+        # A place is all three parts or none. Goods always have one; a service
+        # only when it is done at the buyer's place (README §7.5, V15).
+        CheckConstraint(
+            "num_nonnulls(delivery_province, delivery_district, delivery_sector) IN (0, 3)",
+            name="place_complete",
+        ),
+        CheckConstraint(
+            "(delivery_district IS NOT NULL) = (kind = 'product' OR service_location = "
+            "'at_customer')",
+            name="place_matches_kind",
+        ),
+        CheckConstraint(
+            "delivery_district IS NOT NULL OR delivery_address IS NULL", name="address_needs_place"
+        ),
         CheckConstraint("total_amount >= 0", name="total_not_negative"),
         Index("ix_orders_buyer_account_id_created_at", "buyer_account_id", "created_at"),
     )
@@ -75,6 +93,8 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # A service order: when the provider agreed to do it. Null for goods.
     scheduled_for: Mapped[datetime | None]
+    # A service order: where it is done, from the listing at request time.
+    service_location: Mapped[str | None] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(
         String(20),
         default=OrderStatus.AWAITING_PAYMENT.value,
@@ -85,13 +105,14 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     total_amount: Mapped[Decimal] = mapped_column(Money)
 
-    # Where to deliver, as typed at checkout. For a service order: where the
-    # service happens and whom to contact, as typed in the request.
+    # Where to deliver, as typed at checkout. For a service order: whom to
+    # contact and, for a service done at the buyer's place, where; as typed in
+    # the request.
     recipient_name: Mapped[str] = mapped_column(String(RECIPIENT_NAME_MAX_LENGTH))
     recipient_phone: Mapped[str] = mapped_column(String(20))
-    delivery_province: Mapped[str] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
-    delivery_district: Mapped[str] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
-    delivery_sector: Mapped[str] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
+    delivery_province: Mapped[str | None] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
+    delivery_district: Mapped[str | None] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
+    delivery_sector: Mapped[str | None] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
     delivery_address: Mapped[str | None] = mapped_column(String(DELIVERY_ADDRESS_MAX_LENGTH))
     buyer_note: Mapped[str | None] = mapped_column(String(BUYER_NOTE_MAX_LENGTH))
 

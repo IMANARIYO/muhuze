@@ -26,6 +26,7 @@ from app.modules.products.product_constants import (
     PRICE_DECIMAL_PLACES,
     PRICE_MAX_DIGITS,
     PRODUCT_NAME_MAX_LENGTH,
+    ServiceLocation,
 )
 from app.modules.service_requests.service_request_constants import ServiceRequestStatus
 
@@ -45,6 +46,19 @@ class ServiceRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "(status = 'accepted') = (order_id IS NOT NULL)", name="order_only_when_accepted"
         ),
+        CheckConstraint(
+            f"service_location IN ({', '.join(repr(s.value) for s in ServiceLocation)})",
+            name="service_location_valid",
+        ),
+        # The buyer gives a place only for a service done at their place.
+        CheckConstraint(
+            "num_nonnulls(province, district, sector) IN (0, 3)", name="place_complete"
+        ),
+        CheckConstraint(
+            "(district IS NOT NULL) = (service_location = 'at_customer')",
+            name="place_matches_location",
+        ),
+        CheckConstraint("district IS NOT NULL OR address IS NULL", name="address_needs_place"),
         Index("ix_service_requests_buyer_account_id_created_at", "buyer_account_id", "created_at"),
         Index(
             "ix_service_requests_seller_id_status_created_at", "seller_id", "status", "created_at"
@@ -66,13 +80,16 @@ class ServiceRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(3), default=DEFAULT_CURRENCY, server_default=DEFAULT_CURRENCY
     )
 
-    # When and where, as the buyer proposed it.
+    # Where the service is done, from the listing when asked (README §7.5, V15).
+    service_location: Mapped[str] = mapped_column(String(20))
+    # When, whom to contact, and, for `at_customer` only, where; as the buyer
+    # gave it.
     scheduled_for: Mapped[datetime]
     contact_name: Mapped[str] = mapped_column(String(RECIPIENT_NAME_MAX_LENGTH))
     contact_phone: Mapped[str] = mapped_column(String(20))
-    province: Mapped[str] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
-    district: Mapped[str] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
-    sector: Mapped[str] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
+    province: Mapped[str | None] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
+    district: Mapped[str | None] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
+    sector: Mapped[str | None] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))
     address: Mapped[str | None] = mapped_column(String(DELIVERY_ADDRESS_MAX_LENGTH))
     note: Mapped[str | None] = mapped_column(String(BUYER_NOTE_MAX_LENGTH))
 

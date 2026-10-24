@@ -53,3 +53,11 @@ class InvalidImageOrderError(InputValidationError):
 
 class ImageStorageUnavailableError(ServiceUnavailableError):
     message = "File storage is not available right now. Please try again later."
+
+
+class InvalidServiceDetailsError(InputValidationError):
+    message = "Invalid service details"
+
+
+class DistrictFilterForServicesOnlyError(InputValidationError):
+    message = "The district filter is for services only: send kind=service"

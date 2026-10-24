@@ -10,6 +10,7 @@ assert what is PERSISTED wherever money or state is involved.
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
@@ -27,25 +28,44 @@ INCOMING = f"{REQUESTS}/incoming"
 SHOP_ORDERS = f"{API}/seller-orders/mine"
 JPEG = b"\xff\xd8\xff\xe0" + b"jpeg-bytes" * 20
 BUSINESS_PHONE = "+250788123456"  # what `open_shop` applies with
-LOCATION = {
-    "recipient_name": "Carol Mukamana",
-    "recipient_phone": "+250788999000",
+KIGALI = ZoneInfo("Africa/Kigali")
+CONTACT = {"name": "Carol Mukamana", "phone": "+250788999000"}
+PLACE = {
     "province": "Kigali",
     "district": "Kicukiro",
     "sector": "Niboye",
     "address": "KK 15 Ave, house 12",
 }
+# Goods are delivered to the same place, without the street.
+DELIVERY = {
+    "recipient_name": CONTACT["name"],
+    "recipient_phone": CONTACT["phone"],
+    **{k: v for k, v in PLACE.items() if k != "address"},
+}
+EVERY_DAY = [{"weekday": d, "opens_at": "08:00", "closes_at": "18:00"} for d in range(1, 8)]
+# Pat cleans homes in two districts, any day from 8 to 18, with no notice.
+CLEANING = {
+    "location": "at_customer",
+    "duration_minutes": 180,
+    "min_notice_hours": 0,
+    "areas": ["Kicukiro", "Gasabo"],
+    "hours": EVERY_DAY,
+}
 
 
-def soon(days: int = 3) -> str:
-    return (datetime.now(UTC) + timedelta(days=days)).isoformat()
+def soon(days: int = 3, hour: int = 10) -> str:
+    """`days` from now at `hour` o'clock in Kigali: inside working hours."""
+    day = datetime.now(KIGALI) + timedelta(days=days)
+    return day.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
 
 
 @pytest.fixture
 def listing(db_client: AsyncClient):
     """Put a published listing of the given kind in a seller's shop."""
 
-    async def _listing(seller, name: str, price: str, kind: str) -> str:
+    async def _listing(
+        seller, name: str, price: str, kind: str, service: dict | None = None
+    ) -> str:
         category = await db_client.post(
             f"{API}/categories", json={"name": f"{name} things"}, headers=seller.headers
         )
@@ -57,6 +77,7 @@ def listing(db_client: AsyncClient):
                 "name": name,
                 "price": price,
                 "category_id": category.json()["data"]["id"],
+                **({"service": service or CLEANING} if kind == "service" else {}),
             },
             headers=seller.headers,
         )
@@ -121,7 +142,8 @@ def ask(db_client: AsyncClient, carol, market):
         payload = {
             "service_id": service_id or market.cleaning,
             "scheduled_for": soon(),
-            "location": LOCATION,
+            "contact": CONTACT,
+            "place": PLACE,
             "note": "Two bedrooms",
             **fields,
         }
@@ -245,7 +267,7 @@ async def test_a_service_cannot_be_checked_out(
                 {"product_id": market.kettle, "quantity": 1},
                 {"product_id": market.cleaning, "quantity": 1},
             ],
-            "delivery": {k: v for k, v in LOCATION.items() if k != "address"},
+            "delivery": DELIVERY,
         },
         headers=carol.headers,
     )
@@ -317,8 +339,10 @@ async def test_a_request_records_the_price_and_place_and_charges_nothing(
     assert request["status"] == "requested"
     assert (request["service_name"], request["seller_name"]) == ("Home cleaning", "Pat Cleaning")
     assert (request["unit_price"], request["currency"]) == ("20000.00", "RWF")
-    assert request["location"]["address"] == "KK 15 Ave, house 12"
-    assert request["location"]["note"] == "Two bedrooms"
+    assert request["service_location"] == "at_customer"
+    assert request["contact"] == CONTACT
+    assert request["place"]["address"] == "KK 15 Ave, house 12"
+    assert request["note"] == "Two bedrooms"
     assert request["order"] is None
     async with session_factory() as session:
         assert (await session.scalars(select(Order))).all() == []
@@ -350,7 +374,12 @@ async def test_only_a_service_on_offer_can_be_requested_and_not_from_yourself(
 
     own = await db_client.post(
         REQUESTS,
-        json={"service_id": market.cleaning, "scheduled_for": soon(), "location": LOCATION},
+        json={
+            "service_id": market.cleaning,
+            "scheduled_for": soon(),
+            "contact": CONTACT,
+            "place": PLACE,
+        },
         headers=market.pat.headers,
     )
     assert own.status_code == 422
@@ -364,9 +393,202 @@ async def test_only_a_service_on_offer_can_be_requested_and_not_from_yourself(
 async def test_requesting_needs_a_login(db_client: AsyncClient, market) -> None:
     response = await db_client.post(
         REQUESTS,
-        json={"service_id": market.cleaning, "scheduled_for": soon(), "location": LOCATION},
+        json={
+            "service_id": market.cleaning,
+            "scheduled_for": soon(),
+            "contact": CONTACT,
+            "place": PLACE,
+        },
     )
     assert response.status_code == 401
+
+
+# ── Service details (README §7.5, V15–V18) ───────────────────────────────
+
+
+async def test_a_service_is_published_only_with_all_its_details(
+    db_client: AsyncClient, market
+) -> None:
+    category = await db_client.post(
+        f"{API}/categories", json={"name": "Garden"}, headers=market.pat.headers
+    )
+    category_id = category.json()["data"]["id"]
+    goods = await db_client.post(
+        f"{API}/products",
+        json={"name": "Rake", "price": "5000", "category_id": category_id, "service": CLEANING},
+        headers=market.pat.headers,
+    )
+    assert goods.status_code == 422
+
+    draft = await db_client.post(
+        f"{API}/products",
+        json={"kind": "service", "name": "Mowing", "price": "8000", "category_id": category_id},
+        headers=market.pat.headers,
+    )
+    assert draft.status_code == 201, draft.text
+    product_id = draft.json()["data"]["id"]
+    await db_client.post(
+        f"{API}/products/mine/{product_id}/images",
+        files={"file": ("photo.jpg", JPEG)},
+        headers=market.pat.headers,
+    )
+    blockers = draft.json()["data"]["publish_blockers"]
+    assert "Say where the service is done" in blockers
+    assert "Add the working hours" in blockers
+    url = f"{API}/products/mine/{product_id}"
+    assert (await db_client.post(f"{url}/publish", headers=market.pat.headers)).status_code == 422
+
+    # At the buyer's place needs districts; districts mean nothing elsewhere.
+    no_area = await db_client.patch(
+        url, json={"service": {**CLEANING, "areas": []}}, headers=market.pat.headers
+    )
+    assert "Add at least one district you work in" in no_area.json()["data"]["publish_blockers"]
+    wrong = await db_client.patch(
+        url,
+        json={"service": {**CLEANING, "location": "online"}},
+        headers=market.pat.headers,
+    )
+    assert wrong.status_code == 422
+
+    complete = await db_client.patch(url, json={"service": CLEANING}, headers=market.pat.headers)
+    assert complete.json()["data"]["publish_blockers"] == []
+    published = await db_client.post(f"{url}/publish", headers=market.pat.headers)
+    assert published.status_code == 200, published.text
+    service = (await db_client.get(f"{API}/products/{product_id}")).json()["data"]["service"]
+    assert (service["location"], service["duration_minutes"]) == ("at_customer", 180)
+    assert service["areas"] == ["Gasabo", "Kicukiro"]
+    assert len(service["hours"]) == 7
+
+    # A published service must stay complete.
+    cleared = await db_client.patch(
+        url, json={"service": {"hours": []}}, headers=market.pat.headers
+    )
+    assert cleared.status_code == 422
+
+
+async def test_a_service_at_the_buyers_place_needs_a_place_it_covers(ask) -> None:
+    assert (await ask(place=None)).status_code == 422
+    elsewhere = await ask(place={**PLACE, "province": "South", "district": "Huye"})
+    assert elsewhere.status_code == 422
+    assert "Kicukiro" in elsewhere.json()["message"]
+    # Districts match without regard to case.
+    assert (await ask(place={**PLACE, "district": "kicukiro"})).status_code == 201
+
+
+async def test_a_request_respects_the_notice_and_the_working_hours(
+    db_client: AsyncClient, market, ask
+) -> None:
+    await db_client.patch(
+        f"{API}/products/mine/{market.cleaning}",
+        json={"service": {"min_notice_hours": 48}},
+        headers=market.pat.headers,
+    )
+
+    too_soon = await ask(scheduled_for=soon(days=1))
+    after_hours = await ask(scheduled_for=soon(hour=19))
+    early_morning = await ask(scheduled_for=soon(hour=7))
+
+    assert too_soon.status_code == 422
+    assert "48 hours" in too_soon.json()["message"]
+    assert after_hours.status_code == 422
+    assert "working hours" in after_hours.json()["message"]
+    assert early_morning.status_code == 422
+    assert (await ask(scheduled_for=soon(hour=17))).status_code == 201
+
+
+async def test_at_the_providers_place_the_buyer_learns_the_address_once_paid(
+    db_client: AsyncClient, carol, market, listing, ask, pay
+) -> None:
+    salon = await listing(
+        market.pat,
+        "Haircut",
+        "6000",
+        "service",
+        {**CLEANING, "location": "at_provider", "areas": []},
+    )
+    public = (await db_client.get(f"{API}/products/{salon}")).json()["data"]
+    assert public["provider_area"] == {
+        "province": "Kigali",
+        "district": "Gasabo",
+        "sector": "Remera",
+    }
+
+    assert (await ask(service_id=salon)).status_code == 422  # no place to give
+    response = await ask(service_id=salon, place=None)
+    assert response.status_code == 201, response.text
+    request = response.json()["data"]
+    assert (request["service_location"], request["place"]) == ("at_provider", None)
+
+    accepted = await db_client.post(
+        f"{INCOMING}/{request['id']}/accept", headers=market.pat.headers
+    )
+    assert accepted.status_code == 200, accepted.text
+    order_id = accepted.json()["data"]["order"]["id"]
+    order_url = f"{API}/orders/mine/{order_id}"
+    unpaid = (await db_client.get(order_url, headers=carol.headers)).json()["data"]
+    assert unpaid["service_location"] == "at_provider"
+    assert unpaid["delivery"]["district"] is None
+    assert unpaid["seller_orders"][0]["provider_address"] is None
+
+    await pay(order_id)
+    part = (await db_client.get(order_url, headers=carol.headers)).json()["data"]["seller_orders"][
+        0
+    ]
+    assert part["provider_address"] == {
+        "province": "Kigali",
+        "district": "Gasabo",
+        "sector": "Remera",
+        "street_address": None,
+    }
+    assert part["provider_phone"] == BUSINESS_PHONE
+
+
+async def test_an_online_service_takes_no_place(market, listing, ask) -> None:
+    lessons = await listing(
+        market.pat,
+        "Maths lessons",
+        "5000",
+        "service",
+        {**CLEANING, "location": "online", "areas": []},
+    )
+
+    assert (await ask(service_id=lessons)).status_code == 422
+    response = await ask(service_id=lessons, place=None)
+    assert response.status_code == 201, response.text
+    assert response.json()["data"]["place"] is None
+
+
+async def test_buyers_find_the_services_they_can_get_in_their_district(
+    db_client: AsyncClient, market, listing
+) -> None:
+    # Cleaning comes to Kicukiro and Gasabo; the salon is in Gasabo; lessons are online.
+    await listing(
+        market.pat,
+        "Haircut",
+        "6000",
+        "service",
+        {**CLEANING, "location": "at_provider", "areas": []},
+    )
+    await listing(
+        market.amina,
+        "Maths lessons",
+        "5000",
+        "service",
+        {**CLEANING, "location": "online", "areas": []},
+    )
+
+    async def names(district: str) -> set[str]:
+        page = await db_client.get(
+            f"{API}/products", params={"kind": "service", "district": district}
+        )
+        assert page.status_code == 200, page.text
+        return {item["name"] for item in page.json()["data"]["items"]}
+
+    assert await names("Huye") == {"Maths lessons"}
+    assert await names("kicukiro") == {"Home cleaning", "Maths lessons"}
+    assert await names("Gasabo") == {"Home cleaning", "Haircut", "Maths lessons"}
+    goods = await db_client.get(f"{API}/products", params={"district": "Gasabo"})
+    assert goods.status_code == 422
 
 
 # ── Answering ────────────────────────────────────────────────────────────
@@ -541,12 +763,51 @@ async def test_a_paid_service_goes_straight_to_work_and_settles_on_confirmation(
     assert stored.status == "completed"
 
 
+async def test_the_buyer_gets_the_providers_phone_once_the_service_is_paid(
+    db_client: AsyncClient, carol, market, accepted, pay
+) -> None:
+    # Pat has no subscription: the phone is not on the listing...
+    listing = await db_client.get(f"{API}/products/{market.cleaning}")
+    assert listing.json()["data"]["contact_phone"] is None
+
+    request = await accepted()
+    order_url = f"{API}/orders/mine/{request['order']['id']}"
+
+    # ...nor on the order while it is unpaid,
+    unpaid = await db_client.get(order_url, headers=carol.headers)
+    assert unpaid.json()["data"]["seller_orders"][0]["provider_phone"] is None
+
+    # but it is once the buyer has paid, whatever the subscription.
+    await pay(request["order"]["id"])
+    paid = await db_client.get(order_url, headers=carol.headers)
+    assert paid.json()["data"]["seller_orders"][0]["provider_phone"] == BUSINESS_PHONE
+
+
+async def test_a_paid_goods_order_never_shows_the_sellers_phone(
+    db_client: AsyncClient, carol, market, pay
+) -> None:
+    placed = await db_client.post(
+        f"{API}/orders",
+        json={
+            "items": [{"product_id": market.kettle, "quantity": 1}],
+            "delivery": DELIVERY,
+        },
+        headers=carol.headers,
+    )
+    order_id = placed.json()["data"]["id"]
+    await pay(order_id)
+
+    order = await db_client.get(f"{API}/orders/mine/{order_id}", headers=carol.headers)
+
+    assert order.json()["data"]["seller_orders"][0]["provider_phone"] is None
+
+
 async def test_mark_done_is_for_services_only(db_client: AsyncClient, carol, market, pay) -> None:
     placed = await db_client.post(
         f"{API}/orders",
         json={
             "items": [{"product_id": market.kettle, "quantity": 1}],
-            "delivery": {k: v for k, v in LOCATION.items() if k != "address"},
+            "delivery": DELIVERY,
         },
         headers=carol.headers,
     )

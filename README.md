@@ -451,7 +451,7 @@ Details: [`backend/docs/features/007_products.md`](backend/docs/features/007_pro
 
 ### 7.5 Services and service providers
 
-**Decided 2026-10-22 (`X1` revised, `X2`, `V1`–`V8`, `V10`, `V11`, `V13`, `X3` in part).** Besides products for sale, a shop can offer **services**: work done for a buyer, such as a haircut, cleaning, tutoring, a repair, or catering. **Rentals are still out of scope.**
+**Decided 2026-10-22 (`X1` revised, `X2`, `V1`–`V8`, `V10`, `V11`, `V13`, `X3` in part); `V14`–`V18` on 2026-10-24.** Besides products for sale, a shop can offer **services**: work done for a buyer, such as a haircut, cleaning, tutoring, a repair, or catering. **Rentals are still out of scope.**
 
 **Who provides services (`V1`)**
 
@@ -488,7 +488,20 @@ Buyer confirms it was done  →  SellerOrder Completed  →  earning becomes ava
 
 - A listing is either a **product** or a **service**, chosen when it is created and never changed. Services use the shop's own categories, attributes, and pictures like products. The storefront lists goods unless services are asked for.
 - **Fixed price** (`V5`): the price on the listing is what the buyer pays. It is recorded when the buyer sends the request, so a later price change by the provider does not affect it.
-- **The buyer proposes the time and place** (`V6`, `V7`): a future date and time, a contact name and phone, province, district, sector, and an optional address and note. There is no provider calendar and no check for clashing times. The provider accepts or declines.
+- **The buyer proposes the time** (`V7`) and gives a contact name and phone and an optional note. There is no provider calendar and no check for clashing times. The provider accepts or declines.
+
+**What a service listing says (`V15`–`V18`, decided 2026-10-24)**
+
+Besides the title, description, price, category details, and pictures every listing has, a service says the following. A draft may leave any of it out; **a service cannot be published until all of it is set.**
+
+- **Where it is done** (`V15`), chosen per service:
+  - **at the buyer's place**: the request must give the place (province, district, sector, optional address), as in `V6`;
+  - **at the provider's place**: the buyer comes to the shop's address from the seller application. The listing shows the shop's province, district, and sector; the **street address is shown on the buyer's order once it is paid**, like the phone (`V14`). The request gives no place;
+  - **online**: no place at all.
+- **The districts covered** (`V16`), for a service at the buyer's place only (at least one). A request from another district is refused. Buyers can list the services they can get in a district: those covering it, those whose shop is in it, and every online one. Districts are matched without regard to case.
+- **How long it takes** (`V17`), in minutes. Shown to buyers; nothing is computed from it.
+- **Minimum notice** (`V17`), in hours (0 for none). A request for a time sooner than that is refused.
+- **Working hours** (`V18`): for each day of the week, at most one range in which a job can **start**, in Rwanda time. A day without a range is a day off. A request starting outside them is refused. Hours are checked when the request is sent; a later change to the hours does not affect a request already sent.
 - A request can be accepted only while its time is still in the future and the service is still on offer.
 - **Nothing expires** (`V8`): a request waits until it is answered or the buyer cancels it, and an accepted, unpaid order waits like any unpaid order (`P3`).
 - **"It was not done"** (`V13`): there is no dispute flow yet. The earning stays pending until the buyer confirms, and staff handle complaints by hand (see `R4`).
@@ -503,9 +516,10 @@ Buyer confirms it was done  →  SellerOrder Completed  →  earning becomes ava
 - A provider's **phone number is shown to buyers only while the provider has a subscription in force** ([§10.2](#102-seller-subscription-assignment)), **whatever the plan** (`V10`). Without one, buyers reach the provider only by sending a request in the app.
 - The rule applies to **service listings only** (`V11`); product listings never show the number. Admins cannot require or exempt a subscription for it.
 - The number is **withheld by the API**. It is absent from the response when it must not be shown; hiding it only in the frontend is not allowed.
+- **Once a service order is paid, the buyer sees the provider's phone on that order, with or without a subscription** (`V14`). The job is already booked and paid through MUHUZE, so the buyer can reach the provider about it (for example, if they are late). Before payment the buyer reaches the provider only through the request. The provider always sees the buyer's contact on the request.
 - A buyer who phones a provider and pays them directly is **outside MUHUZE**: there is no order, no payment record, no buyer protection, no commission, and no wallet earning. MUHUZE earns from that contact through the provider's subscription fee. A request made in the app always follows the flow above.
 
-**Still open:** `V9` (licences for some services) and `V12` (service-specific details such as duration) in [§20](#20-open-business-decisions).
+**Still open:** `V9` (licences for some services) and `V12` (whether a category should hold only one kind) in [§20](#20-open-business-decisions).
 
 Details: [`backend/docs/features/019_service_requests.md`](backend/docs/features/019_service_requests.md).
 
@@ -1661,12 +1675,17 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 | V3 | Services use the **same plans, commission resolver, and default rate** as products. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
 | V4 | A provider's share becomes **available when the buyer confirms the service was done** (as `W1`). | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
 | V5 | **Fixed service price**: the listing's price, recorded on the request; the order charges exactly that. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
-| V6 | **The buyer writes where**: contact name and phone, province, district, sector, optional address and note. No per-service place setting. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
-| V7 | **The buyer proposes a future time**; the provider accepts or declines. No calendar, no clash check. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V6 | **The buyer writes where** a service at their place is done: province, district, sector, optional address. (Revised 2026-10-24: only for services done at the buyer's place, `V15`.) | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V7 | **The buyer proposes a future time**; the provider accepts or declines. No calendar, no clash check. (Since 2026-10-24 it must respect the notice and working hours, `V17`, `V18`.) | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
 | V8 | **No expiry** of unanswered requests or of accepted, unpaid orders; the buyer cancels instead. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
 | V10 | **Any subscription in force** shows the provider's business phone. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
 | V11 | The phone rule is for **service listings only**; no admin require/exempt for now. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
 | V13 | **No dispute flow** for "not done": the earning stays pending until the buyer confirms; staff handle complaints by hand. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V14 | **A paid service order shows the provider's phone to its buyer**, with or without a subscription; never before payment. | 2026-10-24 | [§7.5](#75-services-and-service-providers) |
+| V15 | **Each service says where it is done**: at the buyer's place (the buyer gives the place), at the provider's place (the shop's address; the street on the paid order), or online (no place). | 2026-10-24 | [§7.5](#75-services-and-service-providers) |
+| V16 | **A service at the buyer's place lists the districts it covers**; other districts are refused, and buyers can filter services by district. | 2026-10-24 | [§7.5](#75-services-and-service-providers) |
+| V17 | **Every service has a duration** (shown only) **and a minimum notice** in hours (enforced on the request). | 2026-10-24 | [§7.5](#75-services-and-service-providers) |
+| V18 | **Every service has working hours**: one start range per weekday, in Rwanda time; requests outside them are refused. No full calendar. | 2026-10-24 | [§7.5](#75-services-and-service-providers) |
 | I4 | An account must **verify its email before it can log in**. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
 | I6 | The **`admin` role always holds every permission**, and the first admin account is created at startup from environment settings. | 2026-10-06 | [§5.4](#54-authorization-and-ownership) |
 | I5 | Verification codes and password reset links are sent by **email over SMTP**. No email provider is chosen yet; any SMTP service works. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
@@ -1756,7 +1775,7 @@ These were described in the frontend project guide before the README became the 
 | ID | Decision | Blocks |
 |---|---|---|
 | V9 | **Extra checks for some providers.** Do regulated or professional services (health, electrical work, transport, …) need a licence or certificate in the application, beyond the identity document? | sellers, services |
-| V12 | **Service-specific details.** Does a service need fields of its own, such as duration? Should a category hold only one kind? Today a service uses the shop's own categories and attributes like a product, and one category may hold both. | categories, services |
+| V12 | **One kind per category?** Should a category hold only products or only services? Today one category may hold both. (Service-specific fields were decided on 2026-10-24: `V15`–`V18`.) | categories, services |
 
 **Frontend ↔ backend integration**
 

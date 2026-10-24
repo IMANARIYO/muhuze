@@ -20,6 +20,7 @@ All paths are under `/api/v1/products` and use the [standard envelope](response-
 | `kind` | `product` (the default) or `service`. A storefront that does not ask gets goods only |
 | `seller_id` | Only this shop |
 | `category_id` | Only this category |
+| `district` | **Services only** (`kind=service`, otherwise `422`): those a buyer in this district can get: done at the buyer's place and covering it, done at a shop in it, or online. Case-insensitive |
 | `q` | Search the product name: contains, case-insensitive, 1 to 100 characters |
 | `min_price`, `max_price` | Price range, inclusive |
 | `sort` | `published_at`, `price`, `name`; prefix `-` for descending. Default `-published_at` (newest first) |
@@ -93,6 +94,30 @@ POST /mine/{id}/publish     works once publish_blockers is empty
 | `price` | More than 0, at most two decimal places. Send as a string. For a service: the fixed price the buyer pays (`V5`) |
 | `category_id` | One of your own categories. Changing it drops the attribute values |
 | `attributes` | Keyed by attribute `code` (from the [category](categories.md)) |
+| `service` | **Only for a service** (`422` on goods). See below |
+
+**Service details** (README §7.5, `V15`–`V18`). A draft may leave any of them out; a service is published only when all are set (`publish_blockers` lists what is missing). In `PATCH`, only the fields sent change, a list sent replaces the old one, and `null` clears a value (refused on a published service, which must stay complete).
+
+```json
+"service": {
+  "location": "at_customer",
+  "duration_minutes": 180,
+  "min_notice_hours": 24,
+  "areas": ["Kicukiro", "Gasabo"],
+  "hours": [
+    { "weekday": 1, "opens_at": "08:00", "closes_at": "18:00" },
+    { "weekday": 6, "opens_at": "09:00", "closes_at": "13:00" }
+  ]
+}
+```
+
+| Field | Rule |
+|---|---|
+| `location` | `at_customer` (you go to the buyer, who gives the place), `at_provider` (the buyer comes to your shop's address from your seller application), or `online` |
+| `duration_minutes` | 1 to 10,080 (7 days). Shown to buyers |
+| `min_notice_hours` | 0 to 720. A request must be at least this far ahead; 0 = any future time |
+| `areas` | The districts you work in, up to 50, no repeats (any case). **Only for `at_customer`**, which needs at least one. Changing `location` away from `at_customer` clears them |
+| `hours` | When a job can **start**, in Rwanda time: at most one range per `weekday` (1 = Monday … 7 = Sunday), `opens_at` before `closes_at`. A missing day is a day off. At least one day |
 
 **Attribute values by type**
 
@@ -143,7 +168,9 @@ storage: must be a number; colour: must be one of this attribute's options (send
 }
 ```
 
-- **The buyer's page** adds `"shop": { "id": "3f0c…", "name": "Amina Shop" }` and `"contact_phone"`, and shows only active attributes.
+- **`service`** is `null` for goods. For a service it has the details above (`location`, `duration_minutes`, `min_notice_hours`, `areas`, `hours`), with `null` / empty values while a draft is incomplete. Times are `"08:00:00"`.
+- **The buyer's page** adds `"shop": { "id": "3f0c…", "name": "Amina Shop" }`, `"contact_phone"`, and `"provider_area"`, and shows only active attributes.
+- **`provider_area`** is `{ "province", "district", "sector" }` of the shop, set **only for an `at_provider` service**, so the buyer knows roughly where to go. The street address is on the buyer's order once paid.
 - **`contact_phone`** is the provider's business phone. It is set **only on a service, and only while the provider has a subscription in force** (any plan); otherwise it is `null`. The backend leaves it out, so there is nothing to hide in the UI: show a "send a request" call to action when it is `null`.
 - **The seller's view** adds `"publish_blockers": ["Missing required attribute: Storage", "Add at least one image"]`, empty when the product is ready.
 - **List items** have the fields down to `created_at` only (no description, images, or attributes).

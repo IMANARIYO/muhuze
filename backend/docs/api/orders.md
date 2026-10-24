@@ -60,6 +60,7 @@ Needs a login only. Every path reaches only the caller's own orders.
   "order_number": "MHZ-000123",
   "kind": "product",
   "scheduled_for": null,
+  "service_location": null,
   "status": "in_progress",
   "currency": "RWF",
   "total_amount": "1305000.00",
@@ -76,6 +77,8 @@ Needs a login only. Every path reaches only the caller's own orders.
       "status": "shipped",
       "status_reason": null,
       "subtotal": "855000.00",
+      "provider_phone": null,
+      "provider_address": null,
       "items": [
         {
           "id": "9a20…",
@@ -95,7 +98,10 @@ Needs a login only. Every path reaches only the caller's own orders.
 
 - **Show the order from this data, not from the live product.** `product_name`, `unit_price`, `image_url`, and `attributes` are what the buyer bought; the product may have changed since. Use `product_id` only for a "view product" link.
 - The list endpoint returns the fields down to `created_at` only.
-- `kind` is `product` (a checkout) or `service` (an accepted service request: one shop, one item). A service order has `scheduled_for`, the agreed time, and `delivery` is where the service happens.
+- `kind` is `product` (a checkout) or `service` (an accepted service request: one shop, one item). A service order has `scheduled_for`, the agreed time.
+- A service order also has `service_location` (`at_customer`, `at_provider`, `online`; `null` for goods). The place in `delivery` (`province`, `district`, `sector`, `address`) is **`null` unless the service is done at the buyer's place**; `recipient_name` and `recipient_phone` are always the buyer's contact.
+- `provider_phone` is the provider's business phone, set **only on a paid service order**, with or without a subscription (README §7.5, `V14`). It is `null` on goods orders and on any unpaid order.
+- `provider_address` is `{ "province", "district", "sector", "street_address" }` of the provider's shop, set **only on a paid `at_provider` service order** (`V15`): where the buyer goes. `null` otherwise.
 
 **Order status:** `awaiting_payment` → `in_progress` → `completed`, or `cancelled`.
 
@@ -137,6 +143,7 @@ Needs a login, the `seller_order.manage` permission (every seller has it), and a
   "order_number": "MHZ-000123",
   "kind": "product",
   "scheduled_for": null,
+  "service_location": null,
   "seller_id": "3f0c…",
   "status": "pending",
   "status_reason": null,
@@ -159,7 +166,7 @@ Needs a login, the `seller_order.manage` permission (every seller has it), and a
 
 - `seller_amount` is what the seller earns from this order; `commission_amount` is MUHUZE's share. `plan_name` is the plan that gave the rate, or `null` for the default rate.
 - `events` is the history. `actor_account_id` is `null` when the system did it (payment confirmed).
-- The list returns `id`, `order_number`, `kind`, `scheduled_for`, `status`, `currency`, `subtotal`, `seller_amount`, `recipient_name`, `paid_at`, `created_at`.
+- The list returns `id`, `order_number`, `kind`, `scheduled_for`, `service_location`, `status`, `currency`, `subtotal`, `seller_amount`, `recipient_name`, `paid_at`, `created_at`.
 
 ## For staff
 

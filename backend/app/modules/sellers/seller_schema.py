@@ -155,6 +155,19 @@ class SellerResponse(BaseModel):
     )
 
 
+class SellerContact(BaseModel):
+    """A shop's phone and address, for other features that show them to a
+    buyer under their own rules (services, README §7.5). Not an endpoint."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    business_phone: str
+    province: str
+    district: str
+    sector: str
+    street_address: str | None
+
+
 class SellerSummaryResponse(BaseModel):
     """One row of the staff list. No identity details."""
 
