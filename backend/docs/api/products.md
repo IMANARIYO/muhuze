@@ -4,6 +4,8 @@
 
 All paths are under `/api/v1/products` and use the [standard envelope](response-format.md). Money is a decimal string (`"850000.00"`), in RWF.
 
+**Products and services.** Every listing has a `kind`: `product` (goods, bought through [checkout](orders.md)) or `service` (work done for the buyer, booked through a [service request](service_requests.md), never checked out). Both use the same endpoints, categories, attributes, and pictures. The kind is chosen when the listing is created and cannot be changed (README §7.5).
+
 ## For buyers (no login)
 
 | Method | Path | Purpose |
@@ -15,6 +17,7 @@ All paths are under `/api/v1/products` and use the [standard envelope](response-
 
 | Parameter | Meaning |
 |---|---|
+| `kind` | `product` (the default) or `service`. A storefront that does not ask gets goods only |
 | `seller_id` | Only this shop |
 | `category_id` | Only this category |
 | `q` | Search the product name: contains, case-insensitive, 1 to 100 characters |
@@ -30,7 +33,7 @@ Needs a login, the `product.manage` permission (every seller has it), and an **a
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/mine` | Your products in any status. `status`, `category_id`, `q`, `sort`, `page`, `page_size` |
+| GET | `/mine` | Your listings in any status. `kind` (optional: both by default), `status`, `category_id`, `q`, `sort`, `page`, `page_size` |
 | POST | `` | Create a draft (201) |
 | GET | `/mine/{product_id}` | One of your products, with `publish_blockers` |
 | PATCH | `/mine/{product_id}` | Change it |
@@ -63,10 +66,11 @@ POST /mine/{id}/publish     works once publish_blockers is empty
 
 ## Bodies
 
-**Create** (`PATCH` takes any subset):
+**Create** (`PATCH` takes any subset, except `kind`):
 
 ```json
 {
+  "kind": "product",
   "name": "Galaxy S24",
   "description": "Brand new, sealed.",
   "price": "850000",
@@ -83,9 +87,10 @@ POST /mine/{id}/publish     works once publish_blockers is empty
 
 | Field | Rule |
 |---|---|
+| `kind` | `product` (default) or `service`. Fixed once created; sending it in `PATCH` changes nothing |
 | `name` | 1 to 200 characters |
 | `description` | Optional, up to 20,000 characters |
-| `price` | More than 0, at most two decimal places. Send as a string |
+| `price` | More than 0, at most two decimal places. Send as a string. For a service: the fixed price the buyer pays (`V5`) |
 | `category_id` | One of your own categories. Changing it drops the attribute values |
 | `attributes` | Keyed by attribute `code` (from the [category](categories.md)) |
 
@@ -116,6 +121,7 @@ storage: must be a number; colour: must be one of this attribute's options (send
   "id": "e41a…",
   "seller_id": "3f0c…",
   "category_id": "5d2c…",
+  "kind": "product",
   "name": "Galaxy S24",
   "slug": "galaxy-s24",
   "price": "850000.00",
@@ -137,7 +143,8 @@ storage: must be a number; colour: must be one of this attribute's options (send
 }
 ```
 
-- **The buyer's page** adds `"shop": { "id": "3f0c…", "name": "Amina Shop" }` and shows only active attributes.
+- **The buyer's page** adds `"shop": { "id": "3f0c…", "name": "Amina Shop" }` and `"contact_phone"`, and shows only active attributes.
+- **`contact_phone`** is the provider's business phone. It is set **only on a service, and only while the provider has a subscription in force** (any plan); otherwise it is `null`. The backend leaves it out, so there is nothing to hide in the UI: show a "send a request" call to action when it is `null`.
 - **The seller's view** adds `"publish_blockers": ["Missing required attribute: Storage", "Add at least one image"]`, empty when the product is ready.
 - **List items** have the fields down to `created_at` only (no description, images, or attributes).
 - Attribute numbers are plain JSON numbers (they are measurements). Only `price` is a string.

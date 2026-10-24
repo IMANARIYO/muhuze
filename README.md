@@ -117,7 +117,7 @@ This repository is a **ground-up backend rebuild**.
 | Path | What it is |
 |---|---|
 | `README.md` | This specification. |
-| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, **authentication**, **roles and permissions**, **sellers** with private document storage, seller-owned **categories**, **products**, and **seller plans with the commission resolver** **orders**, **manual payments**, and **revenue accounting with seller wallets** (the last three awaiting their first passing test run; see [`backend/docs/features/`](backend/docs/features/FEATURE-ROADMAP.md)). Withdrawals are next. |
+| `backend/` | The rebuild. Engineering rules are in [`backend/AGENTS.md`](backend/AGENTS.md). **Implemented so far:** settings, the standard response envelope, centralized exception handling, structured logging with request IDs, `/health`, the `/api/v1` router, the database layer with Alembic migrations, **authentication**, **roles and permissions**, **sellers** with private document storage, seller-owned **categories**, **products**, and **seller plans with the commission resolver** **orders**, **manual payments**, **revenue accounting with seller wallets**, and **services with service requests** ([§7.5](#75-services-and-service-providers); the last four awaiting their first passing test run; see [`backend/docs/features/`](backend/docs/features/FEATURE-ROADMAP.md)). Withdrawals are next. |
 | `frontend/` | Frontend (Vite + React + TypeScript), currently on demo data. It displays data and requests operations. It never computes or mutates money. Its guide is [`frontend/PROJECT.md`](frontend/PROJECT.md), which defers to this README for business rules. |
 | `old project/` | The original prototype, kept for reference. |
 
@@ -312,6 +312,7 @@ The system **MUST NOT** be modelled as `Order → one seller`. It also **MUST NO
 |---|---|---|
 | Buyer | `Account` | Every account can buy. |
 | Seller | `Seller` (1:0..1 with `Account`) | A seller is also an account, and seller status never affects that account's ability to buy. |
+| Service provider | `Seller` | A seller whose shop offers services, as a business or an independent individual. Not a separate record ([§7.5](#75-services-and-service-providers)). |
 | Admin | `Account` with admin role/permissions | Platform operations, reviews, configuration. |
 | Payment provider | External system (MoMo/bank account in Phase 1, gateway in Phase 2) | Receives the buyer's money into a MUHUZE-controlled destination. In Phase 2 it talks to MUHUZE through an adapter. It is never trusted without verification ([§12](#12-payments-and-gateway-integration)). |
 
@@ -328,6 +329,9 @@ Account ──1:0..1── Seller ──1:N── Product ──N:1── Catego
    │                 └──1:N── Withdrawal ──N:1── SellerPayoutDestination
    │
    │         (no Cart: the cart lives in the frontend, §8)
+   │
+   ├──1:N── ServiceRequest ──N:1── Product (kind = service)   (§7.5; before anything is paid)
+   │              └──0..1:1── Order (kind = service)            (created when the provider accepts)
    │
    └──1:N── Order ──1:N── SellerOrder ──1:N── OrderItem ──N:1── Product (reference only;
                 │              │                                 snapshot is authoritative)
@@ -373,7 +377,7 @@ Seller A's shop                  Seller B's shop
 - Buyers see only active categories, attributes, and options, and only for a shop that is open.
 
 Details: [`backend/docs/features/006_categories.md`](backend/docs/features/006_categories.md).
-- Only **products for sale** are covered. Rental and service listings are not (`X1`).
+- **Products for sale** and **services** ([§7.5](#75-services-and-service-providers)) are covered. Rentals are not (`X1`).
 
 **What this means for buyers.** Buyers browse by category *inside a shop*, and find products across shops by **search**. They cannot browse "all Phones" across the marketplace, because nothing ties one seller's category to another's. If cross-shop browsing is wanted later, it is added as a separate short list of marketplace departments that a product also points to (`K9`); it does not replace seller-owned categories.
 
@@ -444,6 +448,66 @@ Product
 - **Buyers see a product only when** it is published, not hidden by staff, its category is active, and its shop is open. Otherwise it does not exist for them, and they are not told why.
 
 Details: [`backend/docs/features/007_products.md`](backend/docs/features/007_products.md).
+
+### 7.5 Services and service providers
+
+**Decided 2026-10-22 (`X1` revised, `X2`, `V1`–`V8`, `V10`, `V11`, `V13`, `X3` in part).** Besides products for sale, a shop can offer **services**: work done for a buyer, such as a haircut, cleaning, tutoring, a repair, or catering. **Rentals are still out of scope.**
+
+**Who provides services (`V1`)**
+
+- A service provider **is a Seller** ([§6.2](#62-actors)). There is no separate provider record, sign-up, wallet, or withdrawal flow.
+- A shop can offer **products, services, or both**.
+- A provider can be a **business** or an **independent individual** working for themselves. Both use the same seller application and must be **approved by an admin before offering services** ([§15](#15-seller-verification-gates-withdrawals)). A registered business is not required (`S3`).
+- Every seller rule applies to providers unchanged: seller status gates, ownership checks, plans and commission, wallet, settlement, and withdrawals.
+
+**How a buyer gets a service (`X2`): request → accept → pay**
+
+```
+Buyer sends a request           (the service, preferred date/time, where, a note)
+   ↓
+Provider accepts  ──────────►   or declines, with a reason the buyer sees
+   ↓
+Order created for the accepted request   (commercial terms resolved and snapshotted now, §10.3, §11)
+   ↓
+Buyer pays MUHUZE               (same payment flow as products, §12)
+   ↓
+Provider does the work and marks it done
+   ↓
+Buyer confirms it was done  →  SellerOrder Completed  →  earning becomes available (W1)
+```
+
+- **The buyer pays only after the provider accepts**, so a busy or unavailable provider never causes a refund.
+- **A service is not put in the cart** and is never checked out together with products (`V2`). Each request is for **one service from one provider**.
+- When the provider accepts, the backend creates a normal **Order with one SellerOrder and one OrderItem**. The item's snapshot holds the service, its price, and the agreed date/time ([§11.2](#112-product-snapshot)). From then on the existing order, payment, revenue, wallet, and withdrawal rules apply as they are: **there is no separate money flow for services**, and the core money principle ([§2](#the-core-money-principle)) holds.
+- The buyer can **cancel a request** until it is accepted, and the **order while it is unpaid** ([§8](#8-cart-and-checkout)).
+- After payment, a service SellerOrder skips the seller's accept step (the provider already accepted the request) and has no "shipped" step: the provider **marks it done**, and the buyer **confirms** it.
+- A provider who **cannot do a service that is already paid** cancels it with a reason the buyer sees. This works like a seller rejecting a paid product order: the pending earning is reversed ([§13.7](#137-cancellations-refunds-and-reversals)) and the buyer is owed a refund (`R1`).
+- A provider can only see and answer requests for **their own** services ([§5.4](#54-authorization-and-ownership)).
+
+**Listing, price, time, and place (`V5`–`V8`)**
+
+- A listing is either a **product** or a **service**, chosen when it is created and never changed. Services use the shop's own categories, attributes, and pictures like products. The storefront lists goods unless services are asked for.
+- **Fixed price** (`V5`): the price on the listing is what the buyer pays. It is recorded when the buyer sends the request, so a later price change by the provider does not affect it.
+- **The buyer proposes the time and place** (`V6`, `V7`): a future date and time, a contact name and phone, province, district, sector, and an optional address and note. There is no provider calendar and no check for clashing times. The provider accepts or declines.
+- A request can be accepted only while its time is still in the future and the service is still on offer.
+- **Nothing expires** (`V8`): a request waits until it is answered or the buyer cancels it, and an accepted, unpaid order waits like any unpaid order (`P3`).
+- **"It was not done"** (`V13`): there is no dispute flow yet. The earning stays pending until the buyer confirms, and staff handle complaints by hand (see `R4`).
+
+**Commission and settlement (`V3`, `V4`)**
+
+- Services use the **same seller plans, the same commission resolver, and the same default rate** as products ([§10](#10-seller-plans-subscriptions-and-commission)). There are no service-specific plans or rates.
+- A provider's share becomes **available when the buyer confirms the service was done**, the same rule as products (`W1`, [§13.6](#136-settlement-pending-vs-available)). A buyer who never confirms is `W10`, as for products.
+
+**Contact number shown by subscription (`X3`, in part)**
+
+- A provider's **phone number is shown to buyers only while the provider has a subscription in force** ([§10.2](#102-seller-subscription-assignment)), **whatever the plan** (`V10`). Without one, buyers reach the provider only by sending a request in the app.
+- The rule applies to **service listings only** (`V11`); product listings never show the number. Admins cannot require or exempt a subscription for it.
+- The number is **withheld by the API**. It is absent from the response when it must not be shown; hiding it only in the frontend is not allowed.
+- A buyer who phones a provider and pays them directly is **outside MUHUZE**: there is no order, no payment record, no buyer protection, no commission, and no wallet earning. MUHUZE earns from that contact through the provider's subscription fee. A request made in the app always follows the flow above.
+
+**Still open:** `V9` (licences for some services) and `V12` (service-specific details such as duration) in [§20](#20-open-business-decisions).
+
+Details: [`backend/docs/features/019_service_requests.md`](backend/docs/features/019_service_requests.md).
 
 ## 8. Cart and Checkout
 
@@ -557,6 +621,7 @@ Pending ──► Accepted ──► Shipped ──► Delivered ──► Compl
 - Every transition is enforced in the orders service, which checks the current state. An invalid transition fails with a specific error.
 - Each transition is recorded with its timestamp and the actor who made it.
 - All sellers in one order are **never** assumed to move through these states together.
+- A **service** SellerOrder follows the shorter path in [§7.5](#75-services-and-service-providers): released after payment without a second accept, then marked done by the provider and confirmed by the buyer.
 
 **Parent Order status** describes the overall purchase. It is **derived** from its seller orders by **one** service function, and handlers never set it ad hoc. The table (`O1`, decided 2026-10-07):
 
@@ -1138,7 +1203,7 @@ Withdrawal completed               → external payout
 ```
 
 - **Pending and available are distinct.** A seller **MUST NOT** withdraw pending funds.
-- Settlement is performed by **one** service rule: a seller's share becomes available **when the buyer confirms receipt of that seller's SellerOrder** (`W1`, decided). There is **no holding period** after that, so the funds can be withdrawn at once (`W2`, decided). Each SellerOrder settles on its own.
+- Settlement is performed by **one** service rule: a seller's share becomes available **when the buyer confirms receipt of that seller's SellerOrder** (`W1`, decided). For a service, that is when the buyer confirms the service was done ([§7.5](#75-services-and-service-providers)). There is **no holding period** after that, so the funds can be withdrawn at once (`W2`, decided). Each SellerOrder settles on its own.
 - What happens when a buyer **never confirms** receipt is **Open** (`W10`). Until it is decided, those funds stay pending.
 - A seller who **rejects a SellerOrder that is already paid** has the pending earning reversed ([§13.7](#137-cancellations-refunds-and-reversals)). Returning the buyer's money is a refund, which is still manual (`R1`).
 
@@ -1238,7 +1303,7 @@ These are **engineering invariants**. Each one is a testable requirement and sho
 Register account → Apply as seller (business info + identity documents) → Admin approves → Sell → Earn → Withdraw
 ```
 
-- An account **cannot list products or sell** until its seller application has been **approved by an admin**, who reviews the identity documents.
+- An account **cannot list products, offer services, or sell** until its seller application has been **approved by an admin**, who reviews the identity documents. Service providers, businesses and independent individuals alike, use this same application ([§7.5](#75-services-and-service-providers)).
 - Verification therefore happens **once, at onboarding**. There is no separate "verify later" step before the first withdrawal.
 - A withdrawal still **MUST** come from an approved seller. A request from a seller whose application isn't approved is rejected with `SELLER_VERIFICATION_REQUIRED`. Such a seller normally has no earnings, but the gate stays as a safety check.
 - Seller status never affects the account's ability to log in or buy.
@@ -1316,7 +1381,7 @@ The modules are built in **dependency order**. Each step relies on relationships
 | 5 | **Products** | Seller-owned products with validated attribute values. Ownership checks are proven here first. |
 | 6 | **Seller plans** (plans, subscription assignment, default rate, commission resolver) | Must exist **before orders**, because each SellerOrder snapshots the applicable terms when it is created. Subscription *billing* is completed after step 9. |
 | 7 | ~~Cart~~ | Not built: the cart lives in the frontend (`X8`). |
-| 8 | **Orders** | Order → SellerOrder → OrderItem, snapshots, two-level status, release-after-payment. |
+| 8 | **Orders** | Order → SellerOrder → OrderItem, snapshots, two-level status, release-after-payment. Service requests (§7.5) build on it: an accepted request becomes a one-item order. |
 | 9 | **Payments** | **Phase 1 first:** internal Payment record, status machine, MUHUZE payment destinations, payment instructions, reference/proof submission, permissioned manual approval, and the single idempotent `confirm_payment()`, built behind the channel abstraction. Subscription payments are wired here. **Phase 2** (the first gateway adapter) comes once a provider is chosen (`P1`) and requires no change downstream. |
 | 10 | **Revenue accounting** | Per-SellerOrder revenue and earnings from snapshots, plus subscription revenue. |
 | 11 | **Wallets** | Ledger-backed balances; pending/available settlement. |
@@ -1588,7 +1653,20 @@ A successful build does **not** mean the platform is ready to launch. The bar is
 | T2 | **One currency, RWF**, for now. Currency conversion and mixed-currency orders remain undecided. | 2026-10-07 | [§7.4](#74-product-rules) |
 | K6 | Not applicable: categories are seller-owned, so there are no marketplace categories to restrict. | 2026-10-06 | [§7.2](#72-seller-owned-categories) |
 | K7 | **Each seller creates and owns the categories of their own shop**, and defines their attributes. Categories are flat, and there is no shared marketplace tree. | 2026-10-06 | [§7.2](#72-seller-owned-categories) |
-| X1 | Only **products for sale** for now; no rental or service listing types. | 2026-10-06 | [§7.2](#72-seller-owned-categories) |
+| X1 | **Products for sale and services**; no rentals. (Revised 2026-10-22; it was products only from 2026-10-06.) | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| X2 | **Services are bought by request → accept → pay**: the buyer pays MUHUZE only after the provider accepts. Products keep in-app checkout. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| X3 (part) | A **service provider's phone number is shown only while they have a subscription in force**, and is withheld by the API otherwise (details `V10`, `V11`). | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V1 | A **service provider is a Seller**, a business or an independent individual, approved through the same application. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V2 | **Services are not in the cart**; one request is for one service from one provider, and becomes an order of its own. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V3 | Services use the **same plans, commission resolver, and default rate** as products. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V4 | A provider's share becomes **available when the buyer confirms the service was done** (as `W1`). | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V5 | **Fixed service price**: the listing's price, recorded on the request; the order charges exactly that. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V6 | **The buyer writes where**: contact name and phone, province, district, sector, optional address and note. No per-service place setting. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V7 | **The buyer proposes a future time**; the provider accepts or declines. No calendar, no clash check. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V8 | **No expiry** of unanswered requests or of accepted, unpaid orders; the buyer cancels instead. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V10 | **Any subscription in force** shows the provider's business phone. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V11 | The phone rule is for **service listings only**; no admin require/exempt for now. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
+| V13 | **No dispute flow** for "not done": the earning stays pending until the buyer confirms; staff handle complaints by hand. | 2026-10-22 | [§7.5](#75-services-and-service-providers) |
 | I4 | An account must **verify its email before it can log in**. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
 | I6 | The **`admin` role always holds every permission**, and the first admin account is created at startup from environment settings. | 2026-10-06 | [§5.4](#54-authorization-and-ownership) |
 | I5 | Verification codes and password reset links are sent by **email over SMTP**. No email provider is chosen yet; any SMTP service works. | 2026-10-05 | [§5.4](#54-authorization-and-ownership) |
@@ -1669,11 +1747,16 @@ These were described in the frontend project guide before the README became the 
 
 | ID | Decision | Blocks |
 |---|---|---|
-| X2 | **Buying flow per type.** In-app checkout ([§8](#8-cart-and-checkout)) is confirmed for sale products. Do rentals and services use a "contact the seller" flow, bookings, or checkout? | orders, payments |
-| X3 | **Contact visibility tied to subscriptions.** Can an admin *require* a subscription from a seller (or exempt one), with the seller's contact info **withheld by the API** while the required subscription is inactive? How does this combine with the commission-based plans in [§10](#10-seller-plans-subscriptions-and-commission)? | seller_plans, sellers, products |
 | X5 | **Referral earners.** Can *every* user, buyers included, earn referral commission when someone they referred **buys or sells**? If so, where are a buyer's earnings recorded: a wallet for every user, or a separate earnings balance? (See also `F1`.) | referrals, wallets |
 | X6 | **Engagement features.** Are wishlist, view counts, usage counters (bought/rented/booked/contacted), and "popular/trending" sorting part of the product, and are they server-side? | products, analytics |
 | X7 | **Languages.** English only, or also Kinyarwanda and French? | all user-facing text |
+
+**Services and service providers** ([§7.5](#75-services-and-service-providers))
+
+| ID | Decision | Blocks |
+|---|---|---|
+| V9 | **Extra checks for some providers.** Do regulated or professional services (health, electrical work, transport, …) need a licence or certificate in the application, beyond the identity document? | sellers, services |
+| V12 | **Service-specific details.** Does a service need fields of its own, such as duration? Should a category hold only one kind? Today a service uses the shop's own categories and attributes like a product, and one category may hold both. | categories, services |
 
 **Frontend ↔ backend integration**
 

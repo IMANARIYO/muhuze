@@ -116,6 +116,14 @@ class SellerPlanService:
             commission_rate=default.rate, source=TermsSource.DEFAULT, default_rate_id=default.id
         )
 
+    async def has_subscription_in_force(
+        self, seller_id: uuid.UUID, at: datetime | None = None
+    ) -> bool:
+        """Whether any subscription applies to the seller at `at` (default:
+        now), whatever its plan. Read only. Decides whether a service
+        provider's phone is shown to buyers (README §7.5)."""
+        return await self._repository.get_applicable(seller_id, at or utc_now()) is not None
+
     # ── Plans ────────────────────────────────────────────────────────────
 
     async def list_offered_plans(self, pagination: PaginationParams) -> Page[SellerPlanResponse]:

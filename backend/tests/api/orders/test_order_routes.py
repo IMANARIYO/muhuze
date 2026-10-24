@@ -145,7 +145,13 @@ def pay(session_factory, file_storage):
     async def _pay(order: dict) -> None:
         async with session_factory() as session:
             sellers = SellerService(session, AuthorizationService(session), file_storage)
-            products = ProductService(session, CategoryService(session), sellers, file_storage)
+            products = ProductService(
+                session,
+                CategoryService(session),
+                sellers,
+                file_storage,
+                SellerPlanService(session, sellers),
+            )
             service = OrderService(
                 session,
                 products,

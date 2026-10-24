@@ -70,7 +70,7 @@ The codes are the backend's (`GET /authorization/me`), listed in each `backend/a
 
 The features and their rules are listed in the root README. Building a screen for a feature means following the README's confirmed rules for it.
 
-Some screens built before the backend existed showed ideas that are **not confirmed** in the README (`X1`–`X7`): product types (sale/rental/service), contact hiding tied to subscriptions, referrals, view and usage counters, location search. The storefront no longer shows them, because the backend has no data for them. The dashboard pages still marked as demo (section 9) do; change them to match whatever is decided when each is connected.
+Services and service providers are now confirmed in README §7.5 (request → accept → pay, phone number shown only while the provider has a subscription). Rentals are not. Some screens built before the backend existed showed ideas that are still **not confirmed** in the README (`X5`–`X7`, `V9`, `V12`): rentals, referrals, view and usage counters, location search. The storefront no longer shows them, because the backend has no data for them. The dashboard pages still marked as demo (section 9) do; change them to match whatever is decided when each is connected.
 
 UI principles that still apply whatever is decided:
 

@@ -10,15 +10,24 @@ quantities; it reads every price itself and records a snapshot of the
 product and of the seller's commission terms. Nothing recorded here is ever
 recalculated from current data.
 
+A service is never checked out. When a provider accepts a service request,
+that feature calls `create_service_order`: one shop, one item, the agreed
+time. After payment it skips the seller's accept step and is never shipped:
+
+    goods:    pending → accepted → shipped → delivered → completed
+    service:  accepted → delivered ("done") → completed      (README §7.5)
+
 Money follows three events, each told to the wallet ledger in the same
 transaction: paid (the seller's share goes to pending), receipt confirmed
 (pending becomes available), rejected after payment (the earning is reversed).
 
-Every public method is one unit of work and commits it, except `mark_paid`,
-which the payments feature calls inside its own transaction.
+Every public method is one unit of work and commits it, except `mark_paid`
+and `create_service_order`, which other features call inside their own
+transaction.
 """
 
 import uuid
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +38,7 @@ from app.modules.orders.order_constants import (
     FINAL_SELLER_ORDER_STATUSES,
     IMAGE_URL_MAX_LENGTH,
     ORDER_NUMBER_PREFIX,
+    OrderKind,
     OrderStatus,
     SellerOrderStatus,
 )
@@ -38,11 +48,13 @@ from app.modules.orders.order_exceptions import (
     OrderStatusConflictError,
     OwnProductOrderError,
     ProductsUnavailableError,
+    ServicesNotInCheckoutError,
 )
 from app.modules.orders.order_model import Order, OrderItem, SellerOrder, SellerOrderEvent
 from app.modules.orders.order_repository import OrderRepository
 from app.modules.orders.order_schema import (
     BuyerSellerOrderResponse,
+    DeliveryRequest,
     DeliveryResponse,
     OrderCreateRequest,
     OrderItemResponse,
@@ -57,6 +69,7 @@ from app.modules.orders.order_schema import (
     StaffOrderResponse,
     StaffSellerOrderResponse,
 )
+from app.modules.products.product_constants import ProductKind
 from app.modules.products.product_exceptions import ProductNotFoundError
 from app.modules.products.product_schema import PublicProductResponse
 from app.modules.products.product_service import ProductService
@@ -69,6 +82,9 @@ logger = get_logger(__name__)
 
 CENT = Decimal("0.01")
 S = SellerOrderStatus
+# The statuses a seller order may be in for a step, by kind of order. A kind
+# that is missing cannot take that step at all.
+StepFrom = dict[OrderKind, set[SellerOrderStatus]]
 
 
 def derive_order_status(order: Order, seller_order_statuses: list[str]) -> OrderStatus:
@@ -125,9 +141,12 @@ class OrderService:
         if order.cancelled_at is not None:
             raise OrderStatusConflictError("A cancelled order cannot be paid")
         order.paid_at = utc_now()
+        # A service was already accepted when the provider agreed to the
+        # request, so it goes straight to work.
+        release_to = S.ACCEPTED if order.kind == OrderKind.SERVICE else S.PENDING
         seller_orders = await self._repository.list_seller_orders_of([order.id])
         for seller_order in seller_orders:
-            await self._move(seller_order, S.PENDING, actor_id=None)
+            await self._move(seller_order, release_to, actor_id=None)
             # The sale's revenue split and the seller's pending earning,
             # from the amounts frozen on the seller order (README §13.6).
             await self._wallets.record_earning(
@@ -152,6 +171,61 @@ class OrderService:
         act on an order on the buyer's behalf."""
         return await self._own(buyer_account_id, order_id)
 
+    async def get_order_summaries(
+        self, order_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, OrderSummaryResponse]:
+        """Several orders' summaries in one query, by id. For features
+        (service requests) that show the state of the orders they created."""
+        orders = await self._repository.list_orders_by_ids(order_ids)
+        return {order.id: OrderSummaryResponse.model_validate(order) for order in orders}
+
+    async def create_service_order(
+        self,
+        *,
+        buyer_account_id: uuid.UUID,
+        service: PublicProductResponse,
+        unit_price: Decimal,
+        currency: str,
+        scheduled_for: datetime,
+        location: DeliveryRequest,
+        note: str | None,
+        actor_id: uuid.UUID,
+    ) -> Order:
+        """The order for a service request its provider has just accepted
+        (README §7.5): one shop, one item, quantity one, at the price and in
+        the currency the buyer saw when requesting it. The commission terms in force now are
+        copied onto it. From here on it is paid and settled like any order.
+        Not committed: the service-request feature owns the transaction."""
+        order = await self._new_order(
+            buyer_account_id=buyer_account_id,
+            kind=OrderKind.SERVICE,
+            currency=currency,
+            delivery=location,
+            note=note,
+            scheduled_for=scheduled_for,
+        )
+        seller_order_id = uuid.uuid4()
+        item = _order_item(seller_order_id, service, unit_price, quantity=1)
+        seller_order, event = await self._new_seller_order(
+            seller_order_id=seller_order_id,
+            order_id=order.id,
+            seller_id=service.seller_id,
+            seller_name=service.shop.name,
+            subtotal=item.line_total,
+            at=utc_now(),
+            actor_id=actor_id,
+        )
+        order.total_amount = seller_order.subtotal
+
+        await self._repository.add_all([order])
+        await self._repository.add_all([seller_order])
+        await self._repository.add_all([item, event])
+        logger.info(
+            "service order created",
+            extra={"order_id": str(order.id), "order_number": order.order_number},
+        )
+        return order
+
     # ── The buyer ────────────────────────────────────────────────────────
 
     async def place_order(
@@ -162,6 +236,12 @@ class OrderService:
         quantities = {item.product_id: item.quantity for item in payload.items}
         products = await self._purchasable_products(list(quantities))
 
+        services = [product.name for product in products if product.kind == ProductKind.SERVICE]
+        if services:
+            raise ServicesNotInCheckoutError(
+                "Services are booked by sending a request to the provider, not through "
+                f"checkout: {', '.join(services)}"
+            )
         own_seller_id = await self._sellers.find_seller_id(buyer_account_id)
         if any(product.seller_id == own_seller_id for product in products):
             raise OwnProductOrderError()
@@ -174,70 +254,32 @@ class OrderService:
             by_seller.setdefault(product.seller_id, []).append(product)
 
         now = utc_now()
-        delivery = payload.delivery
-        order = Order(
-            id=uuid.uuid4(),
-            order_number=f"{ORDER_NUMBER_PREFIX}{await self._repository.next_order_number():06d}",
+        order = await self._new_order(
             buyer_account_id=buyer_account_id,
-            status=OrderStatus.AWAITING_PAYMENT.value,
+            kind=OrderKind.PRODUCT,
             currency=currencies.pop(),
-            total_amount=Decimal(0),
-            recipient_name=delivery.recipient_name,
-            recipient_phone=delivery.recipient_phone,
-            delivery_province=delivery.province,
-            delivery_district=delivery.district,
-            delivery_sector=delivery.sector,
-            delivery_address=delivery.address or None,
-            buyer_note=payload.note or None,
+            delivery=payload.delivery,
+            note=payload.note,
         )
         seller_orders, items, events = [], [], []
         for seller_id, seller_products in by_seller.items():
-            # The commission terms in force right now, copied onto the order.
-            terms = await self._plans.resolve_commercial_terms(seller_id, now)
             seller_order_id = uuid.uuid4()
-            subtotal = Decimal(0)
-            for product in seller_products:
-                quantity = quantities[product.id]
-                line_total = (product.price * quantity).quantize(CENT)
-                subtotal += line_total
-                items.append(
-                    OrderItem(
-                        seller_order_id=seller_order_id,
-                        product_id=product.id,
-                        product_name=product.name,
-                        unit_price=product.price,
-                        quantity=quantity,
-                        line_total=line_total,
-                        image_url=(product.main_image_url or "")[:IMAGE_URL_MAX_LENGTH] or None,
-                        attributes=_attribute_snapshot(product),
-                    )
-                )
-            commission, seller_amount = split_commission(subtotal, terms.commission_rate)
-            seller_orders.append(
-                SellerOrder(
-                    id=seller_order_id,
-                    order_id=order.id,
-                    seller_id=seller_id,
-                    seller_name=seller_products[0].shop.name,
-                    status=S.AWAITING_PAYMENT.value,
-                    subtotal=subtotal,
-                    commission_rate=terms.commission_rate,
-                    commission_amount=commission,
-                    seller_amount=seller_amount,
-                    terms_source=terms.source.value,
-                    subscription_id=terms.subscription_id,
-                    plan_name=terms.plan_name,
-                    default_rate_id=terms.default_rate_id,
-                )
+            seller_items = [
+                _order_item(seller_order_id, product, product.price, quantities[product.id])
+                for product in seller_products
+            ]
+            seller_order, event = await self._new_seller_order(
+                seller_order_id=seller_order_id,
+                order_id=order.id,
+                seller_id=seller_id,
+                seller_name=seller_products[0].shop.name,
+                subtotal=sum((item.line_total for item in seller_items), Decimal(0)),
+                at=now,
+                actor_id=buyer_account_id,
             )
-            events.append(
-                SellerOrderEvent(
-                    seller_order_id=seller_order_id,
-                    from_status=None,
-                    to_status=S.AWAITING_PAYMENT.value,
-                    actor_account_id=buyer_account_id,
-                )
-            )
+            seller_orders.append(seller_order)
+            items.extend(seller_items)
+            events.append(event)
         # The total is computed from the parts, never the other way round.
         order.total_amount = sum((so.subtotal for so in seller_orders), Decimal(0))
 
@@ -297,12 +339,19 @@ class OrderService:
         seller_order = await self._repository.get_seller_order(seller_order_id)
         if seller_order is None or seller_order.order_id != order.id:
             raise OrderNotFoundError()
-        # The buyer may have it in hand before the seller marks it delivered.
-        self._require(
-            seller_order,
-            {S.SHIPPED, S.DELIVERED},
-            "You can confirm receipt once the seller has shipped it",
-        )
+        if order.kind == OrderKind.SERVICE:
+            self._require(
+                seller_order,
+                {S.DELIVERED},
+                "You can confirm the service once the provider has marked it done",
+            )
+        else:
+            # The buyer may have it in hand before the seller marks it delivered.
+            self._require(
+                seller_order,
+                {S.SHIPPED, S.DELIVERED},
+                "You can confirm receipt once the seller has shipped it",
+            )
         await self._move(seller_order, S.COMPLETED, actor_id=buyer_account_id)
         # The buyer has it: the seller's earning becomes withdrawable.
         await self._wallets.settle(seller_order.id)
@@ -332,31 +381,67 @@ class OrderService:
         self, *, seller_id: uuid.UUID, seller_order_id: uuid.UUID, actor_id: uuid.UUID
     ) -> SellerOrderResponse:
         return await self._seller_step(
-            seller_id, seller_order_id, actor_id, S.ACCEPTED, {S.PENDING}, "accepted"
+            seller_id,
+            seller_order_id,
+            actor_id,
+            S.ACCEPTED,
+            {OrderKind.PRODUCT: {S.PENDING}},
+            "accepted",
         )
 
     async def reject(
         self, *, seller_id: uuid.UUID, seller_order_id: uuid.UUID, actor_id: uuid.UUID, reason: str
     ) -> SellerOrderResponse:
         """The seller declines their part, for example because the product has
-        run out (there is no stock tracking). It is already paid, so the buyer
-        is owed a refund, which staff handle (README §20 R1)."""
+        run out (there is no stock tracking), or a provider cannot do a paid
+        service after all. It is already paid, so the buyer is owed a refund,
+        which staff handle (README §20 R1)."""
         return await self._seller_step(
-            seller_id, seller_order_id, actor_id, S.REJECTED, {S.PENDING}, "rejected", reason
+            seller_id,
+            seller_order_id,
+            actor_id,
+            S.REJECTED,
+            {OrderKind.PRODUCT: {S.PENDING}, OrderKind.SERVICE: {S.ACCEPTED}},
+            "rejected",
+            reason,
         )
 
     async def ship(
         self, *, seller_id: uuid.UUID, seller_order_id: uuid.UUID, actor_id: uuid.UUID
     ) -> SellerOrderResponse:
         return await self._seller_step(
-            seller_id, seller_order_id, actor_id, S.SHIPPED, {S.ACCEPTED}, "shipped"
+            seller_id,
+            seller_order_id,
+            actor_id,
+            S.SHIPPED,
+            {OrderKind.PRODUCT: {S.ACCEPTED}},
+            "shipped",
         )
 
     async def deliver(
         self, *, seller_id: uuid.UUID, seller_order_id: uuid.UUID, actor_id: uuid.UUID
     ) -> SellerOrderResponse:
         return await self._seller_step(
-            seller_id, seller_order_id, actor_id, S.DELIVERED, {S.SHIPPED}, "delivered"
+            seller_id,
+            seller_order_id,
+            actor_id,
+            S.DELIVERED,
+            {OrderKind.PRODUCT: {S.SHIPPED}},
+            "delivered",
+        )
+
+    async def mark_done(
+        self, *, seller_id: uuid.UUID, seller_order_id: uuid.UUID, actor_id: uuid.UUID
+    ) -> SellerOrderResponse:
+        """The provider says a paid service has been done. The buyer then
+        confirms it, which completes it and settles the earning."""
+        return await self._seller_step(
+            seller_id,
+            seller_order_id,
+            actor_id,
+            S.DELIVERED,
+            {OrderKind.SERVICE: {S.ACCEPTED}},
+            "marked done",
         )
 
     # ── Staff ────────────────────────────────────────────────────────────
@@ -447,6 +532,75 @@ class OrderService:
             )
         return products
 
+    # ── Building an order ────────────────────────────────────────────────
+
+    async def _new_order(
+        self,
+        *,
+        buyer_account_id: uuid.UUID,
+        kind: OrderKind,
+        currency: str,
+        delivery: DeliveryRequest,
+        note: str | None,
+        scheduled_for: datetime | None = None,
+    ) -> Order:
+        """An unpaid order with no parts yet; its total is set from them."""
+        return Order(
+            id=uuid.uuid4(),
+            order_number=f"{ORDER_NUMBER_PREFIX}{await self._repository.next_order_number():06d}",
+            buyer_account_id=buyer_account_id,
+            kind=kind.value,
+            scheduled_for=scheduled_for,
+            status=OrderStatus.AWAITING_PAYMENT.value,
+            currency=currency,
+            total_amount=Decimal(0),
+            recipient_name=delivery.recipient_name,
+            recipient_phone=delivery.recipient_phone,
+            delivery_province=delivery.province,
+            delivery_district=delivery.district,
+            delivery_sector=delivery.sector,
+            delivery_address=delivery.address or None,
+            buyer_note=note or None,
+        )
+
+    async def _new_seller_order(
+        self,
+        *,
+        seller_order_id: uuid.UUID,
+        order_id: uuid.UUID,
+        seller_id: uuid.UUID,
+        seller_name: str,
+        subtotal: Decimal,
+        at: datetime,
+        actor_id: uuid.UUID,
+    ) -> tuple[SellerOrder, SellerOrderEvent]:
+        """One shop's part, with the commission terms in force at `at` copied
+        onto it and its money split, plus the event recording its creation."""
+        terms = await self._plans.resolve_commercial_terms(seller_id, at)
+        commission, seller_amount = split_commission(subtotal, terms.commission_rate)
+        seller_order = SellerOrder(
+            id=seller_order_id,
+            order_id=order_id,
+            seller_id=seller_id,
+            seller_name=seller_name,
+            status=S.AWAITING_PAYMENT.value,
+            subtotal=subtotal,
+            commission_rate=terms.commission_rate,
+            commission_amount=commission,
+            seller_amount=seller_amount,
+            terms_source=terms.source.value,
+            subscription_id=terms.subscription_id,
+            plan_name=terms.plan_name,
+            default_rate_id=terms.default_rate_id,
+        )
+        event = SellerOrderEvent(
+            seller_order_id=seller_order_id,
+            from_status=None,
+            to_status=S.AWAITING_PAYMENT.value,
+            actor_account_id=actor_id,
+        )
+        return seller_order, event
+
     # ── Status changes ───────────────────────────────────────────────────
 
     @staticmethod
@@ -494,11 +648,14 @@ class OrderService:
         seller_order_id: uuid.UUID,
         actor_id: uuid.UUID,
         to_status: SellerOrderStatus,
-        allowed_from: set[SellerOrderStatus],
+        steps: StepFrom,
         verb: str,
         reason: str | None = None,
     ) -> SellerOrderResponse:
         seller_order, order = await self._shop_order(seller_id, seller_order_id, for_update=True)
+        allowed_from = steps.get(OrderKind(order.kind))
+        if allowed_from is None:
+            raise OrderStatusConflictError(f"A {order.kind} order cannot be {verb}")
         allowed = " or ".join(sorted(status.value for status in allowed_from))
         self._require(seller_order, allowed_from, f"Only an order that is {allowed} can be {verb}")
         await self._move(seller_order, to_status, actor_id=actor_id, reason=reason)
@@ -564,6 +721,22 @@ class OrderService:
         )
 
 
+def _order_item(
+    seller_order_id: uuid.UUID, product: PublicProductResponse, unit_price: Decimal, quantity: int
+) -> OrderItem:
+    """One line, with a snapshot of the product as it is now."""
+    return OrderItem(
+        seller_order_id=seller_order_id,
+        product_id=product.id,
+        product_name=product.name,
+        unit_price=unit_price,
+        quantity=quantity,
+        line_total=(unit_price * quantity).quantize(CENT),
+        image_url=(product.main_image_url or "")[:IMAGE_URL_MAX_LENGTH] or None,
+        attributes=_attribute_snapshot(product),
+    )
+
+
 def _attribute_snapshot(product: PublicProductResponse) -> list[dict]:
     """The product's details as plain display values, frozen onto the order."""
     snapshot = []
@@ -607,6 +780,8 @@ def _seller_summary_fields(seller_order: SellerOrder, order: Order) -> dict:
     return {
         "id": seller_order.id,
         "order_number": order.order_number,
+        "kind": order.kind,
+        "scheduled_for": order.scheduled_for,
         "status": seller_order.status,
         "currency": order.currency,
         "subtotal": seller_order.subtotal,

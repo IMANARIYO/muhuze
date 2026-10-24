@@ -27,19 +27,24 @@ from app.modules.products.product_constants import (
     PRICE_MAX_DIGITS,
     PRODUCT_NAME_MAX_LENGTH,
     PRODUCT_SLUG_MAX_LENGTH,
+    ProductKind,
     ProductStatus,
 )
 
 
 class Product(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """What a seller offers for sale: the fields every product has. Anything
-    specific to a kind of product is a ProductAttributeValue (README §7.3)."""
+    """What a seller offers: goods for sale or a service (`kind`), with the
+    fields every listing has. Anything specific to a kind of product is a
+    ProductAttributeValue (README §7.3)."""
 
     __tablename__ = "products"
     __table_args__ = (
         UniqueConstraint("seller_id", "slug"),
         CheckConstraint(
             f"status IN ({', '.join(repr(s.value) for s in ProductStatus)})", name="status_valid"
+        ),
+        CheckConstraint(
+            f"kind IN ({', '.join(repr(k.value) for k in ProductKind)})", name="kind_valid"
         ),
         CheckConstraint("price >= 0", name="price_not_negative"),
         Index("ix_products_seller_id_status", "seller_id", "status"),
@@ -50,6 +55,10 @@ class Product(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sellers.id", ondelete="RESTRICT"))
     # RESTRICT: a category that still has products cannot be deleted.
     category_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("categories.id", ondelete="RESTRICT"))
+    # Never changed after creation.
+    kind: Mapped[str] = mapped_column(
+        String(20), default=ProductKind.PRODUCT.value, server_default=ProductKind.PRODUCT.value
+    )
     name: Mapped[str] = mapped_column(String(PRODUCT_NAME_MAX_LENGTH))
     slug: Mapped[str] = mapped_column(String(PRODUCT_SLUG_MAX_LENGTH))
     description: Mapped[str | None] = mapped_column(Text)

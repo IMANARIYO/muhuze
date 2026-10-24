@@ -499,7 +499,13 @@ async def test_a_gateway_would_confirm_through_the_same_function(
     # No member of staff: `verified_by=None` is how an automated confirmation calls it.
     async with session_factory() as session:
         sellers = SellerService(session, AuthorizationService(session), file_storage)
-        products = ProductService(session, CategoryService(session), sellers, file_storage)
+        products = ProductService(
+            session,
+            CategoryService(session),
+            sellers,
+            file_storage,
+            SellerPlanService(session, sellers),
+        )
         orders = OrderService(
             session,
             products,

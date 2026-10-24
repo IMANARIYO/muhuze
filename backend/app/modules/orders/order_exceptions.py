@@ -13,6 +13,10 @@ class ProductsUnavailableError(BusinessRuleError):
     message = "Some products are no longer available"
 
 
+class ServicesNotInCheckoutError(BusinessRuleError):
+    message = "Services are booked by sending a request to the provider, not through checkout"
+
+
 class OwnProductOrderError(BusinessRuleError):
     message = "You cannot order products from your own shop"
 

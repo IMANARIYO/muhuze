@@ -1,6 +1,14 @@
 from enum import StrEnum
 
 
+class OrderKind(StrEnum):
+    """How the order came about. Decides the path its seller order takes
+    after payment (README §7.5, §9.3)."""
+
+    PRODUCT = "product"  # a checkout of goods from the cart
+    SERVICE = "service"  # one service request the provider accepted
+
+
 class OrderStatus(StrEnum):
     """The buyer's whole purchase. DERIVED by `derive_order_status`; never set directly."""
 
@@ -15,11 +23,11 @@ class SellerOrderStatus(StrEnum):
 
     AWAITING_PAYMENT = "awaiting_payment"  # not yet shown to the seller
     PENDING = "pending"  # paid; waiting for the seller to accept or reject
-    ACCEPTED = "accepted"
-    SHIPPED = "shipped"
-    DELIVERED = "delivered"  # the seller says it arrived
-    COMPLETED = "completed"  # the buyer confirmed receipt
-    REJECTED = "rejected"  # the seller declined it
+    ACCEPTED = "accepted"  # a service order starts here once paid
+    SHIPPED = "shipped"  # goods only
+    DELIVERED = "delivered"  # the seller says it arrived; for a service: says it was done
+    COMPLETED = "completed"  # the buyer confirmed receipt, or that the service was done
+    REJECTED = "rejected"  # the seller declined it, or the provider cannot do a paid service
     CANCELLED = "cancelled"  # the order was cancelled before payment
 
 

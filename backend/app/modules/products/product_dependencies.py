@@ -7,6 +7,8 @@ from app.core.database import get_session
 from app.modules.categories.category_dependencies import get_category_service
 from app.modules.categories.category_service import CategoryService
 from app.modules.products.product_service import ProductService
+from app.modules.seller_plans.seller_plan_dependencies import get_seller_plan_service
+from app.modules.seller_plans.seller_plan_service import SellerPlanService
 from app.modules.sellers.seller_dependencies import get_seller_service
 from app.modules.sellers.seller_service import SellerService
 
@@ -16,10 +18,12 @@ def get_product_service(
     session: Annotated[AsyncSession, Depends(get_session)],
     category_service: Annotated[CategoryService, Depends(get_category_service)],
     seller_service: Annotated[SellerService, Depends(get_seller_service)],
+    seller_plan_service: Annotated[SellerPlanService, Depends(get_seller_plan_service)],
 ) -> ProductService:
     return ProductService(
         session=session,
         category_service=category_service,
         seller_service=seller_service,
         file_storage=request.app.state.file_storage,
+        seller_plan_service=seller_plan_service,
     )

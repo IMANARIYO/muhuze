@@ -12,5 +12,6 @@ from app.modules.payments import payment_model  # noqa: F401
 from app.modules.products import product_model  # noqa: F401
 from app.modules.seller_plans import seller_plan_model  # noqa: F401
 from app.modules.sellers import seller_model  # noqa: F401
+from app.modules.service_requests import service_request_model  # noqa: F401
 from app.modules.wallets import wallet_model  # noqa: F401
 from app.modules.withdrawals import withdrawal_model  # noqa: F401

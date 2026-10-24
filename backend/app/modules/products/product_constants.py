@@ -8,6 +8,14 @@ class ProductStatus(StrEnum):
     ARCHIVED = "archived"  # taken off sale by its seller; can be published again
 
 
+class ProductKind(StrEnum):
+    """What a listing offers. Chosen when it is created and never changed,
+    because orders and requests depend on it (README §7.5)."""
+
+    PRODUCT = "product"  # goods, bought through checkout
+    SERVICE = "service"  # work done for the buyer, booked by request → accept → pay
+
+
 # One currency for now (README §20 T2).
 DEFAULT_CURRENCY = "RWF"
 

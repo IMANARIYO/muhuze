@@ -8,6 +8,8 @@ All paths are under `/api/v1`, need `Authorization: Bearer <access token>`, and 
 
 The backend has no cart. Keep the cart on the device (product ids and quantities), and at checkout send it as one request. **Do not send prices or totals**: the backend reads every price itself, and anything else in the request is ignored. Show the buyer the totals from the response.
 
+**Services are not checked out.** A listing with `kind: "service"` cannot go in the cart: checkout refuses it (`422`). The buyer sends a [service request](service_requests.md) instead, and when the provider accepts it an order of `kind: "service"` is created here for the buyer to pay. From then on it is paid, cancelled while unpaid, and confirmed with the endpoints below, like any order.
+
 ## For the buyer
 
 Needs a login only. Every path reaches only the caller's own orders.
@@ -56,6 +58,8 @@ Needs a login only. Every path reaches only the caller's own orders.
 {
   "id": "0c9d…",
   "order_number": "MHZ-000123",
+  "kind": "product",
+  "scheduled_for": null,
   "status": "in_progress",
   "currency": "RWF",
   "total_amount": "1305000.00",
@@ -91,6 +95,7 @@ Needs a login only. Every path reaches only the caller's own orders.
 
 - **Show the order from this data, not from the live product.** `product_name`, `unit_price`, `image_url`, and `attributes` are what the buyer bought; the product may have changed since. Use `product_id` only for a "view product" link.
 - The list endpoint returns the fields down to `created_at` only.
+- `kind` is `product` (a checkout) or `service` (an accepted service request: one shop, one item). A service order has `scheduled_for`, the agreed time, and `delivery` is where the service happens.
 
 **Order status:** `awaiting_payment` → `in_progress` → `completed`, or `cancelled`.
 
@@ -101,10 +106,12 @@ Needs a login only. Every path reaches only the caller's own orders.
 | `awaiting_payment` | Not paid yet |
 | `pending` | Paid; the shop has not responded |
 | `accepted` | The shop is preparing it |
-| `shipped` | On its way. **The buyer can now confirm receipt** |
-| `delivered` | The shop says it arrived. Ask the buyer to confirm |
+| `shipped` | On its way. **The buyer can now confirm receipt** (goods only) |
+| `delivered` | The shop says it arrived. For a service: the provider says it was **done**. Ask the buyer to confirm |
 | `completed` | The buyer confirmed |
-| `rejected` | The shop declined; `status_reason` says why |
+| `rejected` | The shop declined, or the provider cannot do a paid service; `status_reason` says why |
+
+A **service** order skips `pending` and `shipped`: once paid it is `accepted` (the provider already accepted the request), then `delivered` when the provider marks it done. The buyer can confirm it only after that.
 | `cancelled` | The order was cancelled before payment |
 
 ## For the seller
@@ -115,10 +122,11 @@ Needs a login, the `seller_order.manage` permission (every seller has it), and a
 |---|---|---|
 | GET | `/seller-orders/mine` | Your shop's paid orders, newest first. `status`, `page`, `page_size`. New work is `status=pending` |
 | GET | `/seller-orders/mine/{seller_order_id}` | One order: items, where to deliver, what you earn, history |
-| POST | `/seller-orders/mine/{seller_order_id}/accept` | `pending` → `accepted` |
-| POST | `/seller-orders/mine/{seller_order_id}/reject` | `pending` → `rejected`. Body: `{ "reason": "…" }` (5 to 500 characters; the buyer sees it) |
-| POST | `/seller-orders/mine/{seller_order_id}/ship` | `accepted` → `shipped` |
-| POST | `/seller-orders/mine/{seller_order_id}/deliver` | `shipped` → `delivered` |
+| POST | `/seller-orders/mine/{seller_order_id}/accept` | Goods: `pending` → `accepted` |
+| POST | `/seller-orders/mine/{seller_order_id}/reject` | Goods: `pending` → `rejected`. Service: `accepted` → `rejected` (you cannot do it after all). Body: `{ "reason": "…" }` (5 to 500 characters; the buyer sees it). The buyer is owed a refund (manual) |
+| POST | `/seller-orders/mine/{seller_order_id}/ship` | Goods: `accepted` → `shipped` |
+| POST | `/seller-orders/mine/{seller_order_id}/deliver` | Goods: `shipped` → `delivered` |
+| POST | `/seller-orders/mine/{seller_order_id}/mark-done` | Service: `accepted` → `delivered` (done). The buyer then confirms |
 
 **Seller order:**
 
@@ -127,6 +135,8 @@ Needs a login, the `seller_order.manage` permission (every seller has it), and a
   "id": "51fa…",
   "order_id": "0c9d…",
   "order_number": "MHZ-000123",
+  "kind": "product",
+  "scheduled_for": null,
   "seller_id": "3f0c…",
   "status": "pending",
   "status_reason": null,
@@ -149,7 +159,7 @@ Needs a login, the `seller_order.manage` permission (every seller has it), and a
 
 - `seller_amount` is what the seller earns from this order; `commission_amount` is MUHUZE's share. `plan_name` is the plan that gave the rate, or `null` for the default rate.
 - `events` is the history. `actor_account_id` is `null` when the system did it (payment confirmed).
-- The list returns `id`, `order_number`, `status`, `currency`, `subtotal`, `seller_amount`, `recipient_name`, `paid_at`, `created_at`.
+- The list returns `id`, `order_number`, `kind`, `scheduled_for`, `status`, `currency`, `subtotal`, `seller_amount`, `recipient_name`, `paid_at`, `created_at`.
 
 ## For staff
 
@@ -169,6 +179,9 @@ Needs a login, the `seller_order.manage` permission (every seller has it), and a
 | 409 | `A paid order cannot be cancelled` / `This order is already cancelled` | Cancel |
 | 409 | `Only an order that is pending can be accepted` (and the like) | A step out of order |
 | 409 | `You can confirm receipt once the seller has shipped it` | Confirming too early, or twice |
+| 409 | `You can confirm the service once the provider has marked it done` | Confirming a service too early, or twice |
+| 409 | `A service order cannot be shipped` / `A product order cannot be marked done` (and the like) | A step that does not apply to this kind of order |
+| 422 | `Services are booked by sending a request to the provider, not through checkout: <names>` | A service in the cart; nothing was ordered |
 | 422 | `These products are no longer available: <ids>` | One or more products are not on sale; nothing was ordered. Remove them from the cart and try again |
 | 422 | `You cannot order products from your own shop` | |
 | 422 | `MUHUZE has not set its commission rate yet` | Staff have not set the default rate |

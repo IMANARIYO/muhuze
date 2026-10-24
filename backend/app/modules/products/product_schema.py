@@ -12,6 +12,7 @@ from app.modules.products.product_constants import (
     PRODUCT_DESCRIPTION_MAX_LENGTH,
     PRODUCT_NAME_MAX_LENGTH,
     SEARCH_QUERY_MAX_LENGTH,
+    ProductKind,
     ProductStatus,
 )
 
@@ -43,6 +44,13 @@ AttributeValuesInput = dict[str, Any]
 
 
 class ProductCreateRequest(BaseModel):
+    kind: ProductKind = Field(
+        default=ProductKind.PRODUCT,
+        description=(
+            "`product` (bought through checkout) or `service` (booked by request). "
+            "Cannot be changed later."
+        ),
+    )
     name: ProductName
     description: ProductDescription | None = None
     price: Price
@@ -116,6 +124,7 @@ class ProductSummaryResponse(BaseModel):
     id: uuid.UUID
     seller_id: uuid.UUID
     category_id: uuid.UUID
+    kind: ProductKind
     name: str
     slug: str
     price: Decimal
@@ -148,6 +157,13 @@ class ShopSummaryResponse(BaseModel):
 
 class PublicProductResponse(ProductResponse):
     shop: ShopSummaryResponse
+    contact_phone: str | None = Field(
+        default=None,
+        description=(
+            "The provider's business phone. Only for a service, and only while the "
+            "provider has a subscription in force; null otherwise (README §7.5)"
+        ),
+    )
 
 
 # ── List filters ─────────────────────────────────────────────────────────
@@ -167,6 +183,7 @@ class _ProductSearch(BaseModel):
 
 
 class OwnProductFilters(_ProductSearch):
+    kind: ProductKind | None = Field(default=None, description="Only products or only services")
     status: ProductStatus | None = None
     sort: OwnProductSort = Field(default="-created_at", description="Prefix - for descending")
 
@@ -176,6 +193,11 @@ class StaffProductFilters(OwnProductFilters):
 
 
 class PublicProductFilters(_ProductSearch):
+    # Defaults to goods, so a storefront that only knows checkout never lists
+    # services by surprise.
+    kind: ProductKind = Field(
+        default=ProductKind.PRODUCT, description="`product` (default) or `service`"
+    )
     seller_id: uuid.UUID | None = Field(default=None, description="Only this shop")
     min_price: Decimal | None = Field(default=None, ge=0)
     max_price: Decimal | None = Field(default=None, ge=0)

@@ -16,6 +16,7 @@ from app.modules.orders.order_constants import (
     REASON_MIN_LENGTH,
     RECIPIENT_NAME_MAX_LENGTH,
     SEARCH_QUERY_MAX_LENGTH,
+    OrderKind,
     OrderStatus,
     SellerOrderStatus,
 )
@@ -103,6 +104,9 @@ class OrderItemResponse(BaseModel):
 
 
 class DeliveryResponse(BaseModel):
+    """Where to deliver. For a service order: where the service happens and
+    whom to contact there."""
+
     recipient_name: str
     recipient_phone: str
     province: str
@@ -139,6 +143,8 @@ class OrderSummaryResponse(BaseModel):
 
     id: uuid.UUID
     order_number: str
+    kind: OrderKind = Field(description="`product` (a checkout) or `service` (an accepted request)")
+    scheduled_for: datetime | None = Field(description="A service order: the agreed time")
     status: OrderStatus
     currency: str
     total_amount: Decimal
@@ -160,6 +166,8 @@ class SellerOrderSummaryResponse(BaseModel):
 
     id: uuid.UUID
     order_number: str
+    kind: OrderKind
+    scheduled_for: datetime | None = Field(description="A service order: the agreed time")
     status: SellerOrderStatus
     currency: str
     subtotal: Decimal

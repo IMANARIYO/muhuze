@@ -59,6 +59,7 @@ class ProductRepository:
         sort: str,
         seller_id: uuid.UUID | None = None,
         category_id: uuid.UUID | None = None,
+        kind: str | None = None,
         status: str | None = None,
         search: str | None = None,
         min_price: Decimal | None = None,
@@ -73,6 +74,8 @@ class ProductRepository:
             statement = statement.where(Product.seller_id == seller_id)
         if category_id is not None:
             statement = statement.where(Product.category_id == category_id)
+        if kind is not None:
+            statement = statement.where(Product.kind == kind)
         if status is not None:
             statement = statement.where(Product.status == status)
         if search is not None:

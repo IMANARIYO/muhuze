@@ -163,3 +163,7 @@ app/modules/orders/
 - [x] Full flow verified by hand against a real database (in a rolled-back transaction)
 - [x] API and feature documentation
 - [ ] **Tests run and passing** (run by the user: `cd backend && .venv/Scripts/python -m pytest -q`)
+
+## Service orders (feature 019)
+
+Since migration `0011` an order has a `kind`. `product` is a checkout, as described above, and **checkout refuses services**. `service` is created by `create_service_order` when a provider accepts a [service request](019_service_requests.md): one seller order, one item at the requested price, and `scheduled_for`, the agreed time. After payment it is released straight to `accepted`; the provider marks it done (`delivered`, via `/mark-done`) and the buyer confirms, which settles the earning. A provider who cannot do a paid service rejects it from `accepted`. Goods steps (`accept`, `ship`, `deliver`) do not apply to it (README §7.5, §9.3).

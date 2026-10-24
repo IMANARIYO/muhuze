@@ -35,6 +35,7 @@ from app.modules.orders.order_constants import (
     ORDER_NUMBER_SEQUENCE,
     REASON_MAX_LENGTH,
     RECIPIENT_NAME_MAX_LENGTH,
+    OrderKind,
     OrderStatus,
     SellerOrderStatus,
 )
@@ -56,6 +57,11 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "orders"
     __table_args__ = (
         CheckConstraint(_in_values("status", OrderStatus), name="status_valid"),
+        CheckConstraint(_in_values("kind", OrderKind), name="kind_valid"),
+        # A service order always has its agreed time; a checkout never does.
+        CheckConstraint(
+            "(kind = 'service') = (scheduled_for IS NOT NULL)", name="scheduled_for_matches_kind"
+        ),
         CheckConstraint("total_amount >= 0", name="total_not_negative"),
         Index("ix_orders_buyer_account_id_created_at", "buyer_account_id", "created_at"),
     )
@@ -64,6 +70,11 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     buyer_account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("accounts.id", ondelete="RESTRICT")
     )
+    kind: Mapped[str] = mapped_column(
+        String(20), default=OrderKind.PRODUCT.value, server_default=OrderKind.PRODUCT.value
+    )
+    # A service order: when the provider agreed to do it. Null for goods.
+    scheduled_for: Mapped[datetime | None]
     status: Mapped[str] = mapped_column(
         String(20),
         default=OrderStatus.AWAITING_PAYMENT.value,
@@ -74,7 +85,8 @@ class Order(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     total_amount: Mapped[Decimal] = mapped_column(Money)
 
-    # Where to deliver, as typed at checkout.
+    # Where to deliver, as typed at checkout. For a service order: where the
+    # service happens and whom to contact, as typed in the request.
     recipient_name: Mapped[str] = mapped_column(String(RECIPIENT_NAME_MAX_LENGTH))
     recipient_phone: Mapped[str] = mapped_column(String(20))
     delivery_province: Mapped[str] = mapped_column(String(ADDRESS_PART_MAX_LENGTH))

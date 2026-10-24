@@ -180,3 +180,7 @@ app/modules/products/
 - [x] API and feature documentation
 - [ ] **Tests run and passing** (run by the user: `cd backend && .venv/Scripts/python -m pytest -q`)
 - [ ] **A real image upload to Cloudinary** (needs the `CLOUDINARY_*` values)
+
+## Services (feature 019)
+
+Since migration `0011` a listing has a `kind`: `product` or `service`, chosen at creation and never changed. Both kinds share everything in this document. Services are booked through [service requests](019_service_requests.md), never checked out; `GET /products` lists goods unless `kind=service` is asked for; and a service's public page carries the provider's phone (`contact_phone`) only while they have a subscription in force (README §7.5).

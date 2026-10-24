@@ -34,6 +34,11 @@ class OrderRepository:
             statement = statement.with_for_update()
         return await self._session.scalar(statement)
 
+    async def list_orders_by_ids(self, order_ids: list[uuid.UUID]) -> list[Order]:
+        if not order_ids:
+            return []
+        return list(await self._session.scalars(select(Order).where(Order.id.in_(order_ids))))
+
     async def add_all(self, rows: list) -> None:
         self._session.add_all(rows)
         await self._session.flush()

@@ -13,6 +13,9 @@ from app.modules.payments.payment_permissions import PAYMENT_PERMISSIONS
 from app.modules.products.product_permissions import PRODUCT_PERMISSIONS
 from app.modules.seller_plans.seller_plan_permissions import SELLER_PLAN_PERMISSIONS
 from app.modules.sellers.seller_permissions import SELLER_PERMISSIONS
+from app.modules.service_requests.service_request_permissions import (
+    SERVICE_REQUEST_PERMISSIONS,
+)
 from app.modules.wallets.wallet_permissions import WALLET_PERMISSIONS
 from app.modules.withdrawals.withdrawal_permissions import WITHDRAWAL_PERMISSIONS
 
@@ -23,6 +26,7 @@ ALL_PERMISSIONS: tuple[PermissionDefinition, ...] = (
     *PRODUCT_PERMISSIONS,
     *SELLER_PLAN_PERMISSIONS,
     *ORDER_PERMISSIONS,
+    *SERVICE_REQUEST_PERMISSIONS,
     *PAYMENT_PERMISSIONS,
     *WALLET_PERMISSIONS,
     *WITHDRAWAL_PERMISSIONS,

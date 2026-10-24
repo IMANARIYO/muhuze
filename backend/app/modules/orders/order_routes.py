@@ -182,7 +182,8 @@ async def reject_shop_order(
     payload: ReasonRequest,
     service: ServiceDep,
 ) -> JSONResponse:
-    """Decline a pending order you cannot fulfil, with a reason the buyer sees."""
+    """Decline a pending order you cannot fulfil, or a paid service you cannot
+    do after all, with a reason the buyer sees."""
     order = await service.reject(
         seller_id=seller.id,
         seller_order_id=seller_order_id,
@@ -220,6 +221,21 @@ async def deliver_shop_order(
         seller_id=seller.id, seller_order_id=seller_order_id, actor_id=account.id
     )
     return success_response(data=order, message="Order marked as delivered")
+
+
+@order_router.post(
+    "/seller-orders/mine/{seller_order_id}/mark-done",
+    response_model=APIResponse[SellerOrderResponse],
+    tags=SHOP_ORDERS,
+)
+async def mark_shop_order_done(
+    account: CanHandleDep, seller: ActiveSellerDep, seller_order_id: uuid.UUID, service: ServiceDep
+) -> JSONResponse:
+    """Say a paid service has been done. The buyer confirms it to complete it."""
+    order = await service.mark_done(
+        seller_id=seller.id, seller_order_id=seller_order_id, actor_id=account.id
+    )
+    return success_response(data=order, message="Service marked as done")
 
 
 # ── Staff ────────────────────────────────────────────────────────────────

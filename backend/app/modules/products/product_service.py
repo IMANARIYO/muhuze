@@ -1,4 +1,4 @@
-"""Products: what sellers offer for sale.
+"""Products: what sellers offer, goods for sale or services.
 Rules are documented in docs/features/007_products.md and README §7.
 
     draft → published ⇄ archived
@@ -9,6 +9,11 @@ the category's attributes. Every method that changes a product takes the
 acting seller's id: a product of another shop looks exactly like one that
 doesn't exist. Buyers see a product only when it is published, not hidden by
 staff, in a visible category, and its shop is open.
+
+A listing's `kind` (product or service) is chosen when it is created and
+never changes. Services are booked through service requests, not checkout
+(README §7.5); on a service's public page the provider's phone is shown only
+while they have a subscription in force.
 Every public method is one unit of work and commits it.
 """
 
@@ -31,6 +36,7 @@ from app.modules.products.product_constants import (
     IMAGE_SIGNATURES,
     IMAGES_PER_PRODUCT_MAX,
     PRODUCT_SLUG_MAX_LENGTH,
+    ProductKind,
     ProductStatus,
 )
 from app.modules.products.product_exceptions import (
@@ -64,6 +70,7 @@ from app.modules.products.product_schema import (
     ShopSummaryResponse,
     StaffProductFilters,
 )
+from app.modules.seller_plans.seller_plan_service import SellerPlanService
 from app.modules.sellers.seller_exceptions import SellerNotFoundError
 from app.modules.sellers.seller_service import SellerService, open_shop_ids
 from app.shared.responses.pagination import Page, PaginationParams
@@ -82,11 +89,13 @@ class ProductService:
         category_service: CategoryService,
         seller_service: SellerService,
         file_storage: FileStorage,
+        seller_plan_service: SellerPlanService,
     ) -> None:
         self._session = session
         self._categories = category_service
         self._sellers = seller_service
         self._file_storage = file_storage
+        self._plans = seller_plan_service
         self._repository = ProductRepository(session)
 
     # ── A seller's own products ──────────────────────────────────────────
@@ -102,6 +111,7 @@ class ProductService:
         product = Product(
             seller_id=seller_id,
             category_id=category.id,
+            kind=payload.kind.value,
             name=payload.name,
             slug=await self._unique_slug(seller_id, payload.name),
             description=payload.description or None,
@@ -112,7 +122,12 @@ class ProductService:
         await self._set_attribute_values(product, category, payload.attributes, current=[])
         await self._session.commit()
         logger.info(
-            "product created", extra={"product_id": str(product.id), "seller_id": str(seller_id)}
+            "product created",
+            extra={
+                "product_id": str(product.id),
+                "seller_id": str(seller_id),
+                "kind": product.kind,
+            },
         )
         return await self._own_response(product, category)
 
@@ -124,6 +139,7 @@ class ProductService:
             sort=filters.sort,
             seller_id=seller_id,
             category_id=filters.category_id,
+            kind=filters.kind.value if filters.kind else None,
             status=filters.status.value if filters.status else None,
             search=_search(filters.q),
         )
@@ -291,6 +307,7 @@ class ProductService:
             sort=filters.sort,
             seller_id=filters.seller_id,
             category_id=filters.category_id,
+            kind=filters.kind.value,
             search=_search(filters.q),
             min_price=filters.min_price,
             max_price=filters.max_price,
@@ -318,8 +335,23 @@ class ProductService:
 
         detail = await self._detail(product, category, active_only=True)
         return PublicProductResponse(
-            **detail.model_dump(), shop=ShopSummaryResponse(id=shop.id, name=shop.business_name)
+            **detail.model_dump(),
+            shop=ShopSummaryResponse(id=shop.id, name=shop.business_name),
+            contact_phone=await self._contact_phone(product, shop.id, shop.business_phone),
         )
+
+    async def _contact_phone(
+        self, product: Product, seller_id: uuid.UUID, business_phone: str
+    ) -> str | None:
+        """The provider's phone, as buyers may see it: only on a service, and
+        only while the provider has a subscription in force (README §7.5).
+        Otherwise it is left out of the response altogether, never just hidden
+        by the frontend. The one place this rule lives."""
+        if product.kind != ProductKind.SERVICE:
+            return None
+        if not await self._plans.has_subscription_in_force(seller_id):
+            return None
+        return business_phone
 
     # ── Staff ────────────────────────────────────────────────────────────
 
@@ -331,6 +363,7 @@ class ProductService:
             sort=filters.sort,
             seller_id=filters.seller_id,
             category_id=filters.category_id,
+            kind=filters.kind.value if filters.kind else None,
             status=filters.status.value if filters.status else None,
             search=_search(filters.q),
         )
